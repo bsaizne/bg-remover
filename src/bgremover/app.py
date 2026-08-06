@@ -128,7 +128,7 @@ def _selftest() -> int:
             if not mp_video.exists() or mp_video.stat().st_size < 1_000_000:
                 print(f"FAIL: 视频模型不可用: {mp_video}")
                 return 1
-            sess = rvm.build_session(str(mp_video), prefer_gpu=False)
+            sess = rvm.build_session(str(mp_video), prefer_gpu=False)  # CPU 兜底,CI 若无 GPU 也过
             h, w = 128, 128
             rgb = np.random.rand(h, w, 3).astype(np.float32)
             states = rvm.initial_states(sess, h, w)

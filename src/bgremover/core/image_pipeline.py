@@ -27,7 +27,11 @@ def _default_workers() -> int:
     """
     if sys.platform == "darwin":
         return 2
-    return max(1, min((os.cpu_count() or 2) // 2, 4))
+    # CI 环境(os.cpu_count()可能返回容器配额),保底 2
+    cpu = os.cpu_count() or 2
+    if cpu <= 2:
+        return 1  # 小核数机器不做多进程
+    return max(1, min(cpu // 2, 4))
 
 
 @dataclass
