@@ -1,0 +1,29 @@
+[project]
+name = "bgremover"
+version = "0.1.0"
+description = "AI 智能抠图/视频背景移除桌面应用"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.6",
+    "opencv-python-headless",
+    "numpy",
+    "Pillow",
+    # onnxruntime 按平台互斥:Windows 用 directml(含 DmlExecutionProvider),
+    # macOS 用标准包(内置 CoreMLExecutionProvider)。1.23.0 同时提供 arm64+x86_64 wheel,
+    # 覆盖 Intel + Apple Silicon;1.24+ 只有 arm64。Linux 不装(当前无计划)。
+    "onnxruntime-directml; platform_system == 'Windows'",
+    "onnxruntime==1.23.0; platform_system == 'Darwin'",
+    "imageio-ffmpeg",
+    "requests",
+    "psutil",
+]
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bgremover"]

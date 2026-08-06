@@ -1,0 +1,79 @@
+name: Mac Build
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-13, macos-14]          # x86_64 Intel + arm64 Apple Silicon
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install system ffmpeg
+        run: brew install ffmpeg
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install "onnxruntime==1.23.0" opencv-python-headless numpy Pillow PySide6 imageio-ffmpeg requests psutil pyinstaller
+
+      - name: Selftest (verify CoreML)
+        run: PYTHONPATH=src python -c "import sys; sys.argv=['x','--selftest']; from bgremover.app import _selftest; sys.exit(_selftest())"
+
+      - name: Install deps for model download
+        run: pip install requests
+
+      - name: Download models
+        run: |
+          python -c "
+          import sys, os, requests
+          from pathlib import Path
+          sys.path.insert(0, 'src')
+          from bgremover.core.config import models_dir
+          from bgremover.core import model_store
+          mdir = models_dir()
+          mdir.mkdir(parents=True, exist_ok=True)
+          urls = {
+            'image': 'https://ghproxy.net/https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx',
+            'video': 'https://ghproxy.net/https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx',
+          }
+          for purpose, url in urls.items():
+            dest = mdir / model_store.model_name(purpose)
+            if not dest.exists():
+                print(f'Downloading {purpose} model...')
+                r = requests.get(url, stream=True, timeout=600)
+                r.raise_for_status()
+                total = int(r.headers.get('content-length', 0))
+                with open(dest, 'wb') as f:
+                    for chunk in r.iter_content(8192):
+                        f.write(chunk)
+                print(f'{purpose}: {dest.stat().st_size} / {total} bytes')
+            else:
+                print(f'{purpose} exists: {dest.stat().st_size} bytes')
+          print('Models ready')
+          "
+
+      - name: Build macOS app
+        run: |
+          pyinstaller --noconfirm --clean bgremover.spec 2>&1 | tail -20
+          ls -la dist/
+
+      - name: Package zip
+        run: |
+          PYTHONPATH=src python make_zip.py
+          ls -lh dist/*.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI抠图-${{ matrix.os == 'macos-14' && 'arm64' || 'x86_64' }}
+          path: dist/*.zip

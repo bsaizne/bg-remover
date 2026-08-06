@@ -1,0 +1,30 @@
+# Dependencies (Windows CI)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+*.spec.bak
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Backup dirs
+_backup_*/
+
+# Test artifacts
+_test_videos/
+test_out_*.png
+
+# User data (models downloaded at runtime)
+*.onnx
+
+# PyInstaller
+*.manifest
