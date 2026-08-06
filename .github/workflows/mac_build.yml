@@ -25,21 +25,25 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip 2>&1 | tail -3
-          pip install -e . 2>&1 | tail -10
+          pip install "onnxruntime==1.23.0" opencv-python-headless numpy Pillow PySide6 imageio-ffmpeg requests psutil pyinstaller 2>&1 | tail -10
           echo "=== deps installed ==="
 
       - name: Selftest (verify CoreML)
+        shell: bash
         run: |
+          echo "=== deps check ==="
+          python -c "import onnxruntime; print('ort:', onnxruntime.__version__, onnxruntime.get_available_providers())" 2>&1
+          python -c "import cv2; print('cv2:', cv2.__version__)" 2>&1
+          python -c "from PySide6.QtWidgets import QApplication; print('PySide6 OK')" 2>&1
           echo "=== Starting selftest ==="
           PYTHONPATH=src python -c "
-          import sys, logging; logging.basicConfig(level=logging.INFO)
-          sys.argv=['x','--selftest']
+          import sys; sys.argv=['x','--selftest']
           from bgremover.app import _selftest
-          rc = _selftest()
-          print(f'selftest exit code: {rc}')
-          sys.exit(rc)
+          sys.exit(_selftest())
           " 2>&1
-          echo "selftest exit: $?"
+          RC=$?
+          echo "selftest exit: $RC"
+          exit $RC
 
       - name: Install deps for model download
         run: pip install requests 2>&1 | tail -3
@@ -82,7 +86,6 @@ jobs:
 
       - name: Build macOS app
         run: |
-          pip install pyinstaller 2>&1 | tail -3
           pyinstaller --noconfirm --clean bgremover.spec 2>&1 | tail -30
           echo "=== Build complete ==="
           ls -la dist/ 2>&1 || echo "dist/ not found"
