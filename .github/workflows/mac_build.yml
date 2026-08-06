@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   workflow_dispatch:  # 手动触发
 
+concurrency:
+  group: mac-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
@@ -31,19 +35,65 @@ jobs:
       - name: Selftest (verify CoreML)
         shell: bash
         run: |
-          echo "=== deps check ==="
-          python -c "import onnxruntime; print('ort:', onnxruntime.__version__, onnxruntime.get_available_providers())" 2>&1
+          set -e
+          echo "=== 1. Basic imports ==="
+          python -c "import onnxruntime; print('onnxruntime:', onnxruntime.__version__); print('providers:', onnxruntime.get_available_providers())" 2>&1
           python -c "import cv2; print('cv2:', cv2.__version__)" 2>&1
-          python -c "from PySide6.QtWidgets import QApplication; print('PySide6 OK')" 2>&1
-          echo "=== Starting selftest ==="
+          python -c "import numpy; print('numpy:', numpy.__version__)" 2>&1
+          python -c "import PIL; print('PIL:', PIL.__version__)" 2>&1
+          echo "=== 2. bgremover imports ==="
           PYTHONPATH=src python -c "
-          import sys; sys.argv=['x','--selftest']
-          from bgremover.app import _selftest
-          sys.exit(_selftest())
+          from bgremover.core import config, model_store, matting, rvm, ffmpeg_tool, util, image_pipeline, video_pipeline
+          print('core imports OK')
           " 2>&1
-          RC=$?
-          echo "selftest exit: $RC"
-          exit $RC
+          echo "=== 3. ISNet selftest ==="
+          PYTHONPATH=src python -c "
+          import numpy as np, cv2
+          from bgremover.core import matting, model_store
+          mp = model_store.resolve_model_path()
+          if not mp.exists(): raise SystemExit(f'image model missing: {mp}')
+          matting.init_worker(str(mp))
+          img = np.zeros((256, 256, 3), dtype=np.uint8)
+          img[:, :] = (0, 0, 200)
+          cv2.circle(img, (128, 128), 60, (255, 255, 255), -1)
+          rgba, alpha = matting.remove_bg(img, 'auto')
+          center = int(alpha[128, 128]); corner = int(alpha[5, 5])
+          ok = center > 200 and corner < 50
+          print(f'ISNet: center_alpha={center} corner_alpha={corner} -> {\"OK\" if ok else \"FAIL\"}')
+          if not ok: sys.exit(1)
+          " 2>&1
+          echo "=== 4. RVM selftest ==="
+          PYTHONPATH=src python -c "
+          import sys, numpy as np
+          from bgremover.core import rvm, model_store
+          mp = model_store.resolve_model_path('video')
+          if not mp.exists(): raise SystemExit(f'video model missing: {mp}')
+          sess = rvm.build_session(str(mp), prefer_gpu=False)
+          h, w = 128, 128
+          rgb = np.random.rand(h, w, 3).astype(np.float32)
+          states = rvm.initial_states(sess, h, w)
+          fgr, pha, states2 = rvm.infer(sess, rgb, states)
+          assert fgr.shape == (3, h, w) and pha.shape == (1, h, w)
+          assert np.isfinite(fgr).all() and np.isfinite(pha).all()
+          print(f'RVM: backend={rvm.video_backend()} fgr={fgr.shape} pha={pha.shape} -> OK')
+          " 2>&1
+          echo "=== 5. multiprocessing ==="
+          PYTHONPATH=src python -c "
+          from multiprocessing import Pool
+          def ok(x): return x*2
+          with Pool(2) as p: r = p.map(ok, [1,2])
+          assert r == [2,4]; print('multiprocessing OK')
+          " 2>&1
+          echo "=== 6. ffmpeg ==="
+          PYTHONPATH=src python -c "
+          from bgremover.core import ffmpeg_tool as ff
+          fp = ff.locate_ffmpeg()
+          enc = ff.check_encoders(fp)
+          ok = all(enc.values())
+          print(f'ffmpeg: {fp} encoders={enc} -> {\"OK\" if ok else \"FAIL\"}')
+          if not ok: sys.exit(1)
+          " 2>&1
+          echo "=== SELFTEST ALL PASSED ==="
 
       - name: Install deps for model download
         run: pip install requests 2>&1 | tail -3
