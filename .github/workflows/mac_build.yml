@@ -12,8 +12,9 @@ concurrency:
 jobs:
   build:
     strategy:
+      max-parallel: 1          # 串行:先 macos-14(arm64),再 macos-13(x86_64),避免资源竞争被 cancel
       matrix:
-        os: [macos-13, macos-14]          # x86_64 Intel + arm64 Apple Silicon
+        os: [macos-14, macos-13]   # Apple Silicon 优先
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -32,6 +33,41 @@ jobs:
           pip install "onnxruntime==1.23.0" opencv-python-headless numpy Pillow PySide6 imageio-ffmpeg requests psutil pyinstaller 2>&1 | tail -10
           echo "=== deps installed ==="
 
+      - name: Download models (must run before selftest)
+        run: |
+          python -c "
+          import sys, os, requests, traceback
+          from pathlib import Path
+          sys.path.insert(0, 'src')
+          from bgremover.core.config import models_dir
+          from bgremover.core import model_store
+          mdir = models_dir()
+          mdir.mkdir(parents=True, exist_ok=True)
+          urls = {
+              'image': 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx',
+              'video': 'https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx',
+          }
+          for purpose, url in urls.items():
+              dest = mdir / model_store.model_name(purpose)
+              if not dest.exists() or dest.stat().st_size < 1_000_000:
+                  print(f'Downloading {purpose}: {url}')
+                  r = requests.get(url, stream=True, timeout=600)
+                  r.raise_for_status()
+                  total = int(r.headers.get('content-length', 0))
+                  got = 0
+                  with open(dest, 'wb') as f:
+                      for chunk in r.iter_content(65536):
+                          f.write(chunk); got += len(chunk)
+                  print(f'{purpose}: {got}/{total} bytes, ok={got==total}')
+              else:
+                  print(f'{purpose} exists: {dest.stat().st_size} bytes')
+          # Verify
+          for purpose in ('image','video'):
+              dest = mdir / model_store.model_name(purpose)
+              assert dest.exists() and dest.stat().st_size > 1_000_000, f'{purpose} model missing'
+          print('Models ready')
+          " 2>&1
+
       - name: Selftest (verify CoreML)
         shell: bash
         run: |
@@ -48,10 +84,10 @@ jobs:
           " 2>&1
           echo "=== 3. ISNet selftest ==="
           PYTHONPATH=src python -c "
-          import numpy as np, cv2
+          import sys, numpy as np, cv2
           from bgremover.core import matting, model_store
           mp = model_store.resolve_model_path()
-          if not mp.exists(): raise SystemExit(f'image model missing: {mp}')
+          assert mp.exists(), f'image model missing: {mp}'
           matting.init_worker(str(mp))
           img = np.zeros((256, 256, 3), dtype=np.uint8)
           img[:, :] = (0, 0, 200)
@@ -60,14 +96,14 @@ jobs:
           center = int(alpha[128, 128]); corner = int(alpha[5, 5])
           ok = center > 200 and corner < 50
           print(f'ISNet: center_alpha={center} corner_alpha={corner} -> {\"OK\" if ok else \"FAIL\"}')
-          if not ok: sys.exit(1)
+          sys.exit(0 if ok else 1)
           " 2>&1
           echo "=== 4. RVM selftest ==="
           PYTHONPATH=src python -c "
           import sys, numpy as np
           from bgremover.core import rvm, model_store
           mp = model_store.resolve_model_path('video')
-          if not mp.exists(): raise SystemExit(f'video model missing: {mp}')
+          assert mp.exists(), f'video model missing: {mp}'
           sess = rvm.build_session(str(mp), prefer_gpu=False)
           h, w = 128, 128
           rgb = np.random.rand(h, w, 3).astype(np.float32)
@@ -86,53 +122,15 @@ jobs:
           " 2>&1
           echo "=== 6. ffmpeg ==="
           PYTHONPATH=src python -c "
+          import sys
           from bgremover.core import ffmpeg_tool as ff
           fp = ff.locate_ffmpeg()
           enc = ff.check_encoders(fp)
           ok = all(enc.values())
           print(f'ffmpeg: {fp} encoders={enc} -> {\"OK\" if ok else \"FAIL\"}')
-          if not ok: sys.exit(1)
+          sys.exit(0 if ok else 1)
           " 2>&1
           echo "=== SELFTEST ALL PASSED ==="
-
-      - name: Install deps for model download
-        run: pip install requests 2>&1 | tail -3
-
-      - name: Download models
-        run: |
-          python -c "
-          import sys, os, requests, traceback
-          from pathlib import Path
-          sys.path.insert(0, 'src')
-          try:
-              from bgremover.core.config import models_dir
-              from bgremover.core import model_store
-              mdir = models_dir()
-              mdir.mkdir(parents=True, exist_ok=True)
-              urls = {
-                  'image': 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx',
-                  'video': 'https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx',
-              }
-              for purpose, url in urls.items():
-                  dest = mdir / model_store.model_name(purpose)
-                  if not dest.exists() or dest.stat().st_size < 1_000_000:
-                      print(f'Downloading {purpose}: {url}')
-                      r = requests.get(url, stream=True, timeout=600)
-                      r.raise_for_status()
-                      total = int(r.headers.get('content-length', 0))
-                      got = 0
-                      with open(dest, 'wb') as f:
-                          for chunk in r.iter_content(65536):
-                              f.write(chunk)
-                              got += len(chunk)
-                      print(f'{purpose}: {got}/{total} bytes, ok={got==total}')
-                  else:
-                      print(f'{purpose} exists: {dest.stat().st_size} bytes')
-              print('Models ready')
-          except Exception as e:
-              traceback.print_exc()
-              sys.exit(1)
-          "
 
       - name: Build macOS app
         run: |
@@ -146,6 +144,7 @@ jobs:
           ls -lh dist/*.zip
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: AI抠图-${{ matrix.os == 'macos-14' && 'arm64' || 'x86_64' }}
           path: dist/*.zip
