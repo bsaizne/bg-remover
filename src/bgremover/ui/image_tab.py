@@ -1,4 +1,4 @@
-"""图片页:拖拽导入、批量抠图、透明/替换背景导出、原图/结果预览。"""
+"""图片页:拖拽导入、批量抠图、透明/替换背景导出、原图/结果预览、mask 边缘编辑。"""
 from __future__ import annotations
 
 import os
@@ -10,10 +10,10 @@ from PySide6.QtCore import Qt, QMimeData
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QFileDialog,
                                QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-                               QPushButton, QRadioButton, QSplitter, QVBoxLayout,
-                               QWidget)
+                               QPushButton, QRadioButton, QSlider, QSplitter, QVBoxLayout,
+                               QWidget, QGroupBox, QGridLayout)
 
-from bgremover.core import image_pipeline
+from bgremover.core import image_pipeline, matting
 from bgremover.core.config import AppConfig
 from bgremover.ui.preview import TransparentPreview
 from bgremover.workers.image_worker import ImageWorker
@@ -27,6 +27,11 @@ class ImageTab(QWidget):
         self.worker: ImageWorker | None = None
         self._paused = False
         self._img_cache: dict[str, np.ndarray] = {}  # path -> BGR
+        # Mask 边缘编辑状态
+        self._mask_original: np.ndarray | None = None  # 原始 alpha (uint8)
+        self._mask_bgr: np.ndarray | None = None       # 对应的原图 BGR
+        self._mask_w: int = 0
+        self._mask_h: int = 0
         self._build_ui()
         self.setAcceptDrops(True)
 
@@ -117,6 +122,52 @@ class ImageTab(QWidget):
 
         outer = QVBoxLayout(self)
         outer.addWidget(splitter)
+
+        # Mask 边缘编辑面板
+        self._mask_group = QGroupBox("边缘编辑 (单张精修)")
+        self._mask_group.setVisible(False)
+        mg = QGridLayout(self._mask_group)
+
+        self._sl_erode = QSlider(Qt.Orientation.Horizontal)
+        self._sl_erode.setRange(0, 30); self._sl_erode.setValue(0)
+        self._sl_erode.setTickInterval(1); self._sl_erode.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._lbl_erode = QLabel("腐蚀: 0")
+        mg.addWidget(QLabel("腐蚀"), 0, 0)
+        mg.addWidget(self._sl_erode, 0, 1)
+        mg.addWidget(self._lbl_erode, 0, 2)
+
+        self._sl_dilate = QSlider(Qt.Orientation.Horizontal)
+        self._sl_dilate.setRange(0, 30); self._sl_dilate.setValue(0)
+        self._sl_dilate.setTickInterval(1); self._sl_dilate.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._lbl_dilate = QLabel("膨胀: 0")
+        mg.addWidget(QLabel("膨胀"), 1, 0)
+        mg.addWidget(self._sl_dilate, 1, 1)
+        mg.addWidget(self._lbl_dilate, 1, 2)
+
+        self._sl_blur = QSlider(Qt.Orientation.Horizontal)
+        self._sl_blur.setRange(0, 20); self._sl_blur.setValue(0)
+        self._sl_blur.setTickInterval(1); self._sl_blur.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._lbl_blur = QLabel("羽化: 0")
+        mg.addWidget(QLabel("羽化"), 2, 0)
+        mg.addWidget(self._sl_blur, 2, 1)
+        mg.addWidget(self._lbl_blur, 2, 2)
+
+        btn_mask_row = QHBoxLayout()
+        self._btn_reset_mask = QPushButton("重置")
+        self._btn_reset_mask.clicked.connect(self._reset_mask)
+        btn_mask_row.addWidget(self._btn_reset_mask)
+        self._btn_export_mask = QPushButton("导出精修图")
+        self._btn_export_mask.clicked.connect(self._export_refined)
+        btn_mask_row.addWidget(self._btn_export_mask)
+        btn_mask_row.addStretch(1)
+        mg.addLayout(btn_mask_row, 3, 0, 1, 3)
+
+        outer.addWidget(self._mask_group)
+
+        # 滑块联动
+        self._sl_erode.valueChanged.connect(self._on_slider_changed)
+        self._sl_dilate.valueChanged.connect(self._on_slider_changed)
+        self._sl_blur.valueChanged.connect(self._on_slider_changed)
 
     # ---------- 导入 ----------
     def import_dialog(self):
@@ -304,3 +355,102 @@ class ImageTab(QWidget):
     def _refresh_preview_result(self):
         if self.rb_result.isChecked():
             self._on_preview_mode()
+        self._try_load_mask_for_editing()
+
+    # ---------- Mask 边缘编辑 ----------
+    def _try_load_mask_for_editing(self):
+        """当前选中的图片有抠图结果时,加载 alpha mask 供编辑。"""
+        cur = self.list.currentItem()
+        if cur is None:
+            return
+        path = cur.data(Qt.UserRole)
+        img = self._img_cache.get(path)
+        if img is None:
+            return
+        out_name = Path(path).stem + "_bg.png"
+        out_full = os.path.join(self.config.output_dir or os.path.dirname(path), out_name)
+        if not os.path.exists(out_full):
+            self._mask_group.setVisible(False)
+            self._mask_original = None
+            return
+        rgba = cv2.imread(out_full, cv2.IMREAD_UNCHANGED)
+        if rgba is None or rgba.shape[2] < 4:
+            self._mask_group.setVisible(False)
+            self._mask_original = None
+            return
+        self._mask_original = rgba[:, :, 3]  # alpha channel
+        self._mask_bgr = img
+        self._mask_h, self._mask_w = img.shape[:2]
+        # 重置滑块
+        self._sl_erode.blockSignals(True)
+        self._sl_dilate.blockSignals(True)
+        self._sl_blur.blockSignals(True)
+        self._sl_erode.setValue(0)
+        self._sl_dilate.setValue(0)
+        self._sl_blur.setValue(0)
+        self._sl_erode.blockSignals(False)
+        self._sl_dilate.blockSignals(False)
+        self._sl_blur.blockSignals(False)
+        self._lbl_erode.setText("腐蚀: 0")
+        self._lbl_dilate.setText("膨胀: 0")
+        self._lbl_blur.setText("羽化: 0")
+        self._mask_group.setVisible(True)
+
+    def _on_slider_changed(self):
+        e = self._sl_erode.value()
+        d = self._sl_dilate.value()
+        b = self._sl_blur.value()
+        self._lbl_erode.setText(f"腐蚀: {e}")
+        self._lbl_dilate.setText(f"膨胀: {d}")
+        self._lbl_blur.setText(f"羽化: {b}")
+        if self._mask_original is None:
+            return
+        refined = matting.refine_mask(self._mask_original, erode=e, dilate=d, blur=b)
+        rgba = matting.compose_rgba_from_alpha(self._mask_bgr, refined)
+        self.preview.show_rgba(rgba)
+
+    def _reset_mask(self):
+        self._sl_erode.blockSignals(True)
+        self._sl_dilate.blockSignals(True)
+        self._sl_blur.blockSignals(True)
+        self._sl_erode.setValue(0)
+        self._sl_dilate.setValue(0)
+        self._sl_blur.setValue(0)
+        self._sl_erode.blockSignals(False)
+        self._sl_dilate.blockSignals(False)
+        self._sl_blur.blockSignals(False)
+        self._lbl_erode.setText("腐蚀: 0")
+        self._lbl_dilate.setText("膨胀: 0")
+        self._lbl_blur.setText("羽化: 0")
+        if self._mask_original is not None:
+            rgba = matting.compose_rgba_from_alpha(self._mask_bgr, self._mask_original)
+            self.preview.show_rgba(rgba)
+
+    def _export_refined(self):
+        if self._mask_original is None:
+            return
+        e = self._sl_erode.value()
+        d = self._sl_dilate.value()
+        b = self._sl_blur.value()
+        refined = matting.refine_mask(self._mask_original, erode=e, dilate=d, blur=b)
+        rgba = matting.compose_rgba_from_alpha(self._mask_bgr, refined)
+        cur = self.list.currentItem()
+        if cur is None:
+            return
+        path = cur.data(Qt.UserRole)
+        out_dir = self.config.output_dir or os.path.dirname(path)
+        # 导出时加后缀避免覆盖原始抠图
+        stem = Path(path).stem
+        suffix = ""
+        if e > 0:
+            suffix += f"_e{e}"
+        if d > 0:
+            suffix += f"_d{d}"
+        if b > 0:
+            suffix += f"_b{b}"
+        if not suffix:
+            suffix = "_refined"
+        out_name = f"{stem}{suffix}.png"
+        out_path = os.path.join(out_dir, out_name)
+        cv2.imwrite(out_path, rgba)
+        self.mw.statusBar().showMessage(f"已导出: {out_name}", 6000)

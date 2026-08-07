@@ -161,3 +161,37 @@ def _hex_to_bgr(hex_color: str) -> tuple[int, int, int]:
     h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return b, g, r
+
+
+def refine_mask(alpha: np.ndarray, erode: int = 0, dilate: int = 0,
+                blur: int = 0) -> np.ndarray:
+    """精修 alpha mask:腐蚀→膨胀→羽化。
+
+    Args:
+        alpha: uint8 alpha mask (H, W), 0-255
+        erode: 腐蚀核半径,0 跳过
+        dilate: 膨胀核半径,0 跳过
+        blur: 高斯模糊核半径,0 跳过
+
+    Returns:
+        精修后的 alpha mask,同 shape/dtype
+    """
+    a = alpha.copy()
+    if erode > 0:
+        k = erode * 2 + 1
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+        a = cv2.erode(a, kernel, iterations=1)
+    if dilate > 0:
+        k = dilate * 2 + 1
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+        a = cv2.dilate(a, kernel, iterations=1)
+    if blur > 0:
+        k = blur * 2 + 1
+        a = cv2.GaussianBlur(a, (k, k), 0)
+    return a
+
+
+def compose_rgba_from_alpha(bgr: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    """从 BGR 图像和 alpha mask 合成 RGBA uint8。"""
+    b, g, r = cv2.split(bgr)
+    return cv2.merge([b, g, r, alpha])
