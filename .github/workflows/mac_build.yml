@@ -12,9 +12,10 @@ concurrency:
 jobs:
   build:
     strategy:
-      max-parallel: 1          # 串行:先 macos-14(arm64),再 macos-13(x86_64),避免资源竞争被 cancel
+      fail-fast: false            # 一个架构失败不影响另一个
+      max-parallel: 1             # 串行,macos-14 优先
       matrix:
-        os: [macos-14, macos-13]   # Apple Silicon 优先
+        os: [macos-14, macos-13]  # arm64 + x86_64
     runs-on: ${{ matrix.os }}
 
     steps:
