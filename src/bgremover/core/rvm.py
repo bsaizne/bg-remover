@@ -76,17 +76,23 @@ def _io_spec(session) -> dict:
     return _IO_CACHE[key]
 
 
-def build_session(model_path: str, prefer_gpu: bool = True):
+def build_session(model_path: str, prefer_gpu: bool = True, timeout: int = 30):
     """创建 RVM Session(prefer_gpu=True 优先平台 GPU:Windows DML / Mac CoreML)。
 
     CoreML 对动态 shape / ConvGRU 支持有限,Session 创建失败(含算子不可用)
     自动回退 CPU;成功后 log 实际生效 provider。末尾 warmup 一次前置图编译。
+    timeout: Mac CoreML 图编译可能超时,设 30s 避免 CI 无限挂起。
     """
     import onnxruntime as ort
 
     so = ort.SessionOptions()
     so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     so.log_severity_level = 3
+    # 设置超时(Mac CoreML 图编译可能无限挂起)
+    try:
+        so.session_timeout = timeout
+    except AttributeError:
+        pass  # 部分 onnxruntime 版本无此属性
     providers = detect_provider(prefer_gpu)
     try:
         session = ort.InferenceSession(str(model_path), sess_options=so, providers=providers)

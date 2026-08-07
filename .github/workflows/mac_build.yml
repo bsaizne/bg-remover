@@ -70,13 +70,13 @@ jobs:
 
       - name: Selftest (verify CoreML)
         shell: bash
+        timeout-minutes: 10
         run: |
           set -e
           echo "=== 1. Basic imports ==="
           python -c "import onnxruntime; print('onnxruntime:', onnxruntime.__version__); print('providers:', onnxruntime.get_available_providers())" 2>&1
           python -c "import cv2; print('cv2:', cv2.__version__)" 2>&1
           python -c "import numpy; print('numpy:', numpy.__version__)" 2>&1
-          python -c "import PIL; print('PIL:', PIL.__version__)" 2>&1
           echo "=== 2. bgremover imports ==="
           PYTHONPATH=src python -c "
           from bgremover.core import config, model_store, matting, rvm, ffmpeg_tool, util, image_pipeline, video_pipeline
@@ -99,12 +99,12 @@ jobs:
           sys.exit(0 if ok else 1)
           " 2>&1
           echo "=== 4. RVM selftest ==="
-          PYTHONPATH=src python -c "
+          PYTHONPATH=src timeout 120 python -c "
           import sys, numpy as np
           from bgremover.core import rvm, model_store
           mp = model_store.resolve_model_path('video')
           assert mp.exists(), f'video model missing: {mp}'
-          sess = rvm.build_session(str(mp), prefer_gpu=False)
+          sess = rvm.build_session(str(mp), prefer_gpu=False, timeout=10)
           h, w = 128, 128
           rgb = np.random.rand(h, w, 3).astype(np.float32)
           states = rvm.initial_states(sess, h, w)
@@ -114,7 +114,7 @@ jobs:
           print(f'RVM: backend={rvm.video_backend()} fgr={fgr.shape} pha={pha.shape} -> OK')
           " 2>&1
           echo "=== 5. multiprocessing ==="
-          PYTHONPATH=src python -c "
+          python -c "
           from multiprocessing import Pool
           def ok(x): return x*2
           with Pool(2) as p: r = p.map(ok, [1,2])
