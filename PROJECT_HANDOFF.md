@@ -9,19 +9,17 @@
 
 ## 1. 项目概述
 
-macOS 桌面应用,用 onnxruntime 推理 AI 模型自动移除图片与视频背景。**这是一个带可视化 UI 窗口的桌面软件,不是命令行工具——正常启动会弹出 PySide6 窗口,用户可直接在窗口拖拽图片/视频进行抠图。** 支持批量处理、透明导出、背景替换、实时预览、光流帧间平滑、错误恢复与日志排错。视频推理走 CoreML GPU(Apple Silicon 原生加速),无 GPU 自动回退 CPU。
+macOS 桌面应用,用 onnxruntime 推理 AI 模型自动移除图片与视频背景。**这是一个带可视化 UI 窗口的桌面软件——用户双击打开后看到 PySide6 窗口,可直接拖拽图片/视频进行抠图。** 视频推理走 CoreML GPU(Apple Silicon 原生加速),无 GPU 自动回退 CPU。
 
-**当前在 Windows 开发机上完成全部代码,通过 CI 构建 Mac 版 arm64 artifact(379MB);x86_64 CI 排队中。Mac 真机验证待用户有 Mac 时进行。**
+**当前全部代码在 Windows 开发机(R5 5600)上完成,通过 GitHub Actions CI 在 macos-14(arm64)上成功构建 artifact(379MB);macos-13(x86_64)排队中。Mac 真机验证待用户有 Mac 时进行。**
 
-### 如何确认产物是 GUI 应用
-- `bgremover.spec` 中 `console=False`——不弹命令行终端,直接显示 Qt 窗口
-- 入口: `__main__.py`→`app.main()`→`QApplication.exec()`,标准的 PySide6 GUI 启动链
-- CI artifact 解压后是 `AI抠图/` 目录,内含 `AI抠图` 可执行文件,Mac 上双击就能打开可视化窗口
-- `--selftest` 是 CI 无头自检模式(通过 `sys.argv` 判断),正常启动**不传此参数就走 GUI**
-- `app.py` 的 `freeze_support()` 无条件调用,Mac frozen .app 下 multiprocessing 子进程正常
+### 产物形态
+- CI artifact(`AI抠图-mac-arm64.zip`)解压后是 `AI抠图/` 目录,Mac 上双击 `AI抠图` 即可打开 GUI 窗口
+- `bgremover.spec`:`console=False`(不弹终端),GUI 启动链:`__main__.py`→`app.main()`→`QApplication.exec()`
+- `--selftest` 仅 CI 无头自检用,正常启动不传此参数
 
-### 未签名问题
-当前 CI 产物**未代码签名**(需 Apple Developer 证书 $99/年)。未签名的 Mac 应用首次打开时,Gatekeeper 弹"无法验证开发者"——用户需**右键点击→打开**即可正常运行。不是 bug。spec 中 `codesign_identity=None` 可改为证书 ID 签名。
+### 未签名
+CI 产物未签名(需 Apple Developer 证书 $99/年)。Gatekeeper 拦截时**右键→打开**即可。spec 中 `codesign_identity=None` 可按需改为证书 ID。
 
 ---
 
@@ -75,27 +73,29 @@ macOS 桌面应用,用 onnxruntime 推理 AI 模型自动移除图片与视频�
 
 ---
 
-## 4. 技术栈(macOS 视角)
+## 4. 技术栈(macOS 目标)
 
-| 组件 | 版本 | 说明 |
-|------|------|------|
-| Python | 3.12.13 | |
-| GUI | PySide6 6.11.1 | |
-| 图像 | opencv-python-headless 5.0.0.93, numpy 2.5.1, Pillow 12.3.0 | |
-| 推理 | **onnxruntime==1.23.0** | **1.24+ 只有 arm64 wheel,Intel Mac 必须锁 1.23.0**;内置 CoreMLExecutionProvider |
-| 视频 | imageio-ffmpeg 0.6.0 | 自带 ffmpeg 7.1(prores_ks/vp9/x264/aac 全可用) |
-| 打包 | PyInstaller 6.21.0 | |
-| 其他 | requests 2.34.2, psutil 7.2.2 | |
+| 组件 | 目标版本 | 说明 |
+|------|---------|------|
+| Python | 3.12+ | |
+| GUI | PySide6 6.11+ | |
+| 图像 | opencv-python-headless, numpy, Pillow | |
+| 推理 | **onnxruntime==1.23.0** | Mac 目标;1.24+ 只有 arm64,Intel 须锁 1.23;内置 CoreMLExecutionProvider |
+| 视频 | imageio-ffmpeg 0.6.0 | 自带 ffmpeg 7.1 |
+| 打包 | PyInstaller 6.21+ | |
+| 其他 | requests, psutil | |
 
-**关键结论**:
-- **不要用 `onnxruntime-coreml`**(已停更,仅 cp39)。标准 onnxruntime 的 macOS wheel 已内置 CoreMLExecutionProvider。
-- CoreML 对 RVM 动态 shape / ConvGRU 支持有限(可能部分算子切 CPU),代码已做失败降级+ session_timeout 硬止损。
-- Mac 打包需 `upx=False`,BUNDLE/INFO.plist,代码签名。
+> **开发机(Windows R5 5600)实际版本**:onnxruntime-directml 1.24.4, opencv 5.0.0.93, numpy 2.5.1, Pillow 12.3.0, psutil 7.2.2。这些是 Win 上 selftest 用的,Mac CI 走 pip install onnxruntime==1.23.0。版本差异不影响代码逻辑(API 兼容)。
 
 ### 模型
 - 图片:`isnet-general-use.onnx`(178MB)
 - 视频:`rvm_mobilenetv3_fp32.onnx`(15MB)
 - 位置:`~/Library/Application Support/bgremover/models/`
+
+**关键结论**:
+- **不要用 `onnxruntime-coreml`**(已停更,仅 cp39)。标准 onnxruntime 的 macOS wheel 已内置 CoreMLExecutionProvider。
+- CoreML 对 RVM 动态 shape / ConvGRU 支持有限(可能部分算子切 CPU),代码已做失败降级+ session_timeout 硬止损。
+- Mac 打包需 `upx=False`,BUNDLE/INFO.plist,代码签名。
 
 ---
 
@@ -105,10 +105,10 @@ macOS 桌面应用,用 onnxruntime 推理 AI 模型自动移除图片与视频�
 D:\claudework\bg-remover\
 ├─ pyproject.toml           # 平台标记:DARWIN→onnxruntime==1.23.0
 ├─ .python-version          # 3.12
-├─ README.md                # 用户文档(分 Windows/Mac 安装)
-├─ WINDOWS_BUILD.md         # [参考]原 Windows 打包基线
+├─ README.md                # 用户文档
 ├─ bgremover.spec           # PyInstaller spec(已平台化:Mac 分支 upx=False,ffmpeg 走 brew)
 ├─ make_zip.py              # zip 打包(产出名按平台+架构:AI抠图-mac-arm64.zip 等)
+├─ _windows_backup/         # Windows 相关文件备份(WINDOWS_BUILD.md 等,Mac 项目不引用)
 ├─ PROJECT_HANDOFF.md       # 本交接文档
 ├─ .github/workflows/mac_build.yml  # CI(macos-14 arm64 ✅ + macos-13 x86_64 排队中)
 ├─ _backup_*/               # 历代改动备份
@@ -154,7 +154,6 @@ D:\claudework\bg-remover\
 | `pyproject.toml` | 平台标记:`onnxruntime==1.23.0; platform_system == 'Darwin'` |
 | `bgremover.spec` | PyInstaller spec,Mac 分支:upx=False,ffmpeg 走 brew,不收集 DirectML DLL |
 | `make_zip.py` | 压缩 onedir 为 zip,文件名按平台+架构:AI抠图-mac-arm64.zip |
-| `WINDOWS_BUILD.md` | [参考]原 Win 打包基线,Mac 细节在本文档 |
 | `.github/workflows/mac_build.yml` | CI:macos-14+macos-13,串行,先下载模型→selftest→打包→上传 |
 | `app.py` | freeze_support 无条件调用;setup_logging(app+error.log+环境头);--selftest(含 provider 分支断言) |
 | `core/config.py` | AppConfig dataclass;darwin 数据目录→~/Library/Application Support/bgremover |
@@ -315,14 +314,13 @@ ffmpeg 解码(rawvideo,rgb24) → _Reader 线程 → 主循环:
 
 ## 10. 开发注意事项(Mac 视角)
 
-### 环境
-- **开发机是 Windows**(R5 5600,无 Mac)—所有代码改动在 Win 上做,CI 验证 Mac 构建
-- Python `.venv`(3.12),命令必须带 `PYTHONPATH=src`
-- 绝对路径:`D:\claudework\bg-remover\.venv\Scripts\python.exe`
-- 工作目录漂移:bash 里 cd 后相对路径失效,用绝对路径
+### 开发环境
+- **开发机是 Windows**(R5 5600,无 Mac),所有代码改动在 Win 上做,CI 验证 Mac 构建。改动前备份到 `_backup_<feature>/`
+- Python `.venv`(3.12),命令必须带 `PYTHONPATH=src`,用绝对路径:`D:\claudework\bg-remover\.venv\Scripts\python.exe`
+- bash 里 cd 后相对路径失效(工作目录会漂移),一律用绝对路径
 - GitHub 仓库:https://github.com/bsaizne/bg-remover(公开,含 CI Actions)
-- 本机 `github.com` 直连可能失败→git push 需重试;API 不受影响
-- 改动前备份到 `_backup_<feature>/`
+- 本机 `github.com` 直连可能失败→git push 需重试;GitHub API 不受影响
+- 项目根目录 `_windows_backup/` 备份了 Windows 相关文件(WINDOWS_BUILD.md 等),Mac 项目不引用
 
 ### 架构约束
 - **`core/` 绝不能 import PySide6**(子进程 import 会崩)
@@ -330,39 +328,24 @@ ffmpeg 解码(rawvideo,rgb24) → _Reader 线程 → 主循环:
 - onnxruntime Session 不可跨进程 pickle
 - **视频推理必须单进程顺序**(RVM 状态跨帧),图片才用 Pool
 - **图片 Session 必须显式 providers=["CPUExecutionProvider"]**
-- 改动前备份到 `_backup_<feature>/`
-
-### 如何确认产物是带 GUI 的桌面应用(补充说明)
-- GitHub Actions CI artifact(`AI抠图-mac-arm64.zip` 或 `AI抠图-mac-x86_64.zip`)本质是 PyInstaller onedir 打包产物
-- 解压后 `AI抠图/` 目录内含 `AI抠图` 可执行文件,Mac 上双击即可打开可视化窗口(不是命令行脚本)
-- 启动链: `__main__.py`→`app.main()`→`QApplication(sys.argv)`→`MainWindow().show()`→`app.exec()`,标准的 PySide6 Qt GUI 主循环
-- `bgremover.spec` 中 `console=False` 确保不会弹终端窗口
-- 核心窗口:图片页(拖拽导入/批量抠图/棋盘格预览) + 视频页(导入/格式选择/实时预览/双层进度) + 工具栏(导入/开始/暂停/取消/主题/日志/导出日志/设置)
-
-### 开发环境(Mac 真机未验证:全部代码在 Win 上完成,CI 验证)
-- Python `.venv`(3.12),命令必须带 `PYTHONPATH=src`
-- 绝对路径:`D:\claudework\bg-remover\.venv\Scripts\python.exe`
-- 工作目录漂移:bash 里 cd 后相对路径失效,用绝对路径
-- GitHub 仓库:https://github.com/bsaizne/bg-remover(公开,含 CI Actions)
-- 本机 `github.com` 直连可能失败→git push 需重试;API 不受影响
 
 ### 验证
 ```bash
 cd /d/claudework/bg-remover
 PYTHONPATH=src .venv/Scripts/python.exe -c "import sys; sys.argv=['x','--selftest']; from bgremover.app import _selftest; sys.exit(_selftest())"
-# 期望全绿:isnet/multiprocessing/ffmpeg/RVM/provider branches
+# Win 开发机期望全绿,backend=DirectML GPU
+# Mac CI 上 backend 可能为 CoreML GPU 或 CPU(取决于 CI runner)
 ```
 
 ### CI
 - workflow:`.github/workflows/mac_build.yml`
-- Max parallel:1(串行,macos-14 优先),fail-fast:false
 - 步骤:brew ffmpeg→pip 安装→下载模型(直连 GitHub)→selftest(容错)→pyinstaller→zip→upload artifact
-- **当前状态**:macos-14 arm64 success(artifact 379MB);macos-13 x86_64 排队中(commit 1866ac7 未推送)
+- 当前状态:macos-14 arm64 success(artifact 379MB);macos-13 x86_64 排队中
 
 ### 用户需求
 - 用户无 Mac 实体机,但要把软件发给 Mac 用户用
-- Mac 用户拿到 CI artifact(zip)→解压→双击 `AI抠图` 就能打开带可视化窗口的桌面软件(Mac 自己的 GUI 窗口,不是命令行)
-- 用户无 Mac 实体机→真机验证靠用户反馈(拆箱即用);排错靠日志(app.log + error.log) + 失败弹窗
+- Mac 用户拿到 CI artifact(zip)→解压→双击 `AI抠图` 打开可视化窗口
+- 真机验证靠用户反馈;排错靠日志(app.log + error.log) + 失败弹窗
 - 用户用剪映对比视频抠像速度
 
 ---
@@ -374,12 +357,11 @@ PYTHONPATH=src .venv/Scripts/python.exe -c "import sys; sys.argv=['x','--selftes
 ```
 新 Claude 对话,请先读取项目交接文档 D:\claudework\bg-remover\PROJECT_HANDOFF.md,然后继续开发。
 项目是 macOS AI 抠图/视频背景移除桌面软件(PySide6 + onnxruntime CoreML),位于 D:\claudework\bg-remover。
-文档里已完整记录:已完成功能、目录结构、每个文件作用、数据模型、重要业务逻辑、已修bug、下一步计划。
+文档里完整记录了已完成功能/目录结构/文件作用/数据模型/业务逻辑/已修bug/下一步计划。
 当前待办(文档第 9 节):
-1. macos-13 x86_64 CI artifact:本地有1个commit(1866ac7,fail-fast:false)未推送,需先push
-2. Mac 真机验证:待用户有 Mac 或引导用户下载 CI artifact 测试
-3. P2:mask 边缘编辑(交互式腐蚀/膨胀/羽化)、代码签名(需 Apple Developer 证书)
-
+1. macos-13 x86_64 CI artifact:本地有1个commit(1866ac7)未推送,需先push
+2. Mac 真机验证:待用户有 Mac 或引导下载 CI artifact 测试
+3. P2:mask 边缘编辑/代码签名(需 Apple Developer 证书)
 关键环境:
 * 开发机是 Windows(R5 5600,无 Mac),代码在 Win 上改,CI 验证 Mac 构建
 * Python .venv(3.12),命令带 PYTHONPATH=src,绝对路径 D:\claudework\bg-remover\.venv\Scripts\python.exe
@@ -388,4 +370,5 @@ PYTHONPATH=src .venv/Scripts/python.exe -c "import sys; sys.argv=['x','--selftes
 * GitHub仓库:https://github.com/bsaizne/bg-remover(已推送)
 * 改动前备份到 _backup_<feature>/
 ```
+
 
