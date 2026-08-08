@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-                               QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-                               QPushButton, QSpinBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+                               QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+                               QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget)
 
 from bgremover.core.config import AppConfig
 
@@ -48,6 +48,13 @@ class SettingsDialog(QDialog):
         self.norm_mode.setCurrentIndex(idx)
         form.addRow("模型归一化:", self.norm_mode)
 
+        # 实验性 CoreML 加速(Mac)。默认关闭:CoreML 对 RVM 状态循环不可靠。
+        import sys as _sys
+        if _sys.platform == "darwin":
+            self.enable_coreml = QCheckBox("实验性:启用 CoreML 视频加速(可能画面异常)")
+            self.enable_coreml.setChecked(config.enable_coreml)
+            form.addRow("视频加速:", self.enable_coreml)
+
         self.ffmpeg_edit = QLineEdit()
         ff_btn = QPushButton("浏览...")
         ff_btn.clicked.connect(self._pick_ffmpeg)
@@ -85,6 +92,8 @@ class SettingsDialog(QDialog):
         self.config.max_resolution = self.max_res.value()
         self.config.keep_audio = self.keep_audio.currentIndex() == 0
         self.config.norm_mode = ["auto", "255", "imagenet"][self.norm_mode.currentIndex()]
+        if getattr(self, "enable_coreml", None) is not None:
+            self.config.enable_coreml = self.enable_coreml.isChecked()
         if self.ffmpeg_edit.text().strip():
             from bgremover.core import ffmpeg_tool
             ffmpeg_tool.FFMPEG_OVERRIDE = self.ffmpeg_edit.text().strip()

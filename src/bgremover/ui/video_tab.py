@@ -291,7 +291,8 @@ class VideoTab(QWidget):
             src=src, dst=out, fmt=fmt,
             max_resolution=self.config.max_resolution, keep_audio=keep_audio,
             background=background, bg_color=bg_color,
-            task_index=self.queue_index + 1, task_total=len(self.videos), parent=self)
+            task_index=self.queue_index + 1, task_total=len(self.videos), parent=self,
+            enable_coreml=self.config.enable_coreml)
         self.worker.signals.progress.connect(self._on_progress)
         self.worker.signals.finished.connect(self._on_finished)
         self.worker.signals.failed.connect(self._on_failed)

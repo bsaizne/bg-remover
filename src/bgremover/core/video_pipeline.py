@@ -125,7 +125,8 @@ class VideoPipeline:
                 max_resolution: int = 1280,
                 keep_audio: bool = True, background: str = "", bg_color: str = "#000000",
                 progress_cb=None, pause_event: Event | None = None,
-                cancel_event: Event | None = None) -> VideoTaskResult:
+                cancel_event: Event | None = None,
+                enable_coreml: bool = False) -> VideoTaskResult:
         t0 = time.monotonic()
         ffmpeg = ff.locate_ffmpeg()
         meta = ff.probe_video(ffmpeg, src)
@@ -198,9 +199,10 @@ class VideoPipeline:
                 writer.start()
 
             # ---- RVM 单进程顺序推理(带循环状态)----
-            # probe_hw=实际处理分辨率:真机实测 1.23 CoreML EP 小图正常、大图全黑,
-            # 必须用真实分辨率 warmup 自检,输出过弱自动降级 CPU。
-            session = rvm.build_session(self.model_path, probe_hw=(ph, pw))
+            # probe_hw=实际处理分辨率:CoreML 小图正常大图异常,用真实分辨率自检。
+            # enable_coreml 默认 False:Mac 走 CPU(CoreML 对 RVM 状态循环不可靠)。
+            session = rvm.build_session(self.model_path, probe_hw=(ph, pw),
+                                        enable_coreml=enable_coreml)
             states = rvm.initial_states(session, ph, pw)
             down = rvm.DOWNSAMPLE_RATIO
             recovered = 0  # 因解码中断用最后有效帧填充的帧数

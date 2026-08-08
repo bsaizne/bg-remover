@@ -23,27 +23,30 @@ RVM_MODEL_NAME = "rvm_mobilenetv3_fp32.onnx"
 _IO_CACHE: dict[int, dict] = {}  # 按 session id 缓存输入输出规格,避免重复自省
 
 
-def _resolve_provider(platform_name: str, avail: list[str], prefer_gpu: bool) -> list[str]:
+def _resolve_provider(platform_name: str, avail: list[str], prefer_gpu: bool,
+                      enable_coreml: bool = False) -> list[str]:
     """纯函数:按平台与可用 provider 决定推理 providers 优先级(可单测)。
 
     platform_name 取 sys.platform("win32"/"darwin"/其他);
     avail 为 ort.get_available_providers() 结果。
-    Windows 优先 DmlExecutionProvider,达尔文优先 CoreMLExecutionProvider,
-    无可用 GPU 或 prefer_gpu=False → CPU。
+    Windows 优先 DmlExecutionProvider;Darwin 默认走 CPU(enable_coreml=False,
+    因 1.23 CoreML EP 对 RVM 状态循环不可靠,真机闪现原画面),开启后才优先
+    CoreML;无可用 GPU 或 prefer_gpu=False → CPU。
     """
     if not prefer_gpu:
         return ["CPUExecutionProvider"]
-    if platform_name == "darwin" and "CoreMLExecutionProvider" in avail:
-        return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
     if platform_name == "win32" and "DmlExecutionProvider" in avail:
         return ["DmlExecutionProvider", "CPUExecutionProvider"]
+    if platform_name == "darwin" and enable_coreml and "CoreMLExecutionProvider" in avail:
+        return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
     return ["CPUExecutionProvider"]
 
 
-def detect_provider(prefer_gpu: bool = True) -> list[str]:
-    """检测可用 provider:Windows 优先 DML,Mac 优先 CoreML,无则 CPU。"""
+def detect_provider(prefer_gpu: bool = True, enable_coreml: bool = False) -> list[str]:
+    """检测可用 provider:Windows 优先 DML,Mac 默认 CPU(enable_coreml 才用 CoreML)。"""
     import onnxruntime as ort
-    return _resolve_provider(sys.platform, ort.get_available_providers(), prefer_gpu)
+    return _resolve_provider(sys.platform, ort.get_available_providers(),
+                             prefer_gpu, enable_coreml)
 
 
 def video_backend() -> str:
@@ -114,16 +117,16 @@ _coreml_blacklisted = False
 
 
 def build_session(model_path: str, prefer_gpu: bool = True, timeout: int = 30,
-                  probe_hw: tuple[int, int] | None = None):
-    """创建 RVM Session(prefer_gpu=True 优先平台 GPU:Windows DML / Mac CoreML)。
+                  probe_hw: tuple[int, int] | None = None,
+                  enable_coreml: bool = False):
+    """创建 RVM Session。
 
+    Windows 优先 DML;Mac 默认 CPU(enable_coreml=False,因 1.23 CoreML EP 对
+    RVM 状态循环不可靠),enable_coreml=True 时才优先 CoreML。
     CoreML 对动态 shape / ConvGRU 支持有限,Session 创建失败(含算子不可用)
     自动回退 CPU;成功后 log 实际生效 provider。末尾 warmup 一次前置图编译。
     timeout: Mac CoreML 图编译可能超时,设 30s 避免 CI 无限挂起。
-    probe_hw: 自检用分辨率。真机实测 onnxruntime 1.23 的 CoreML EP 在
-    **小分辨率**(128)下输出正常,但**实际视频分辨率**(如 1080p)下 fgr/pha
-    全黑——分辨率相关 bug。故 warmup 自检必须用真实分辨率,检测到输出
-    过弱即降级 CPU。probe_hw 为 None 时用 128(兼容旧调用/CI)。
+    probe_hw: 自检用分辨率(真机实测 CoreML 小图正常大图异常,用真实分辨率)。
     """
     global _coreml_blacklisted
     import onnxruntime as ort
@@ -137,7 +140,7 @@ def build_session(model_path: str, prefer_gpu: bool = True, timeout: int = 30,
         so.session_timeout = timeout
     except AttributeError:
         pass  # 部分 onnxruntime 版本无此属性
-    providers = detect_provider(prefer_gpu)
+    providers = detect_provider(prefer_gpu, enable_coreml)
     # CoreML 已被判黑名单 → 直接 CPU,不再白试
     if _coreml_blacklisted and providers[0] != "CPUExecutionProvider":
         log.info("RVM CoreML 已拉黑,直接使用 CPU")

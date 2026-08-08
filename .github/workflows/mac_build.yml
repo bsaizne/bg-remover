@@ -15,7 +15,7 @@ jobs:
       fail-fast: false            # 一个架构失败不影响另一个
       max-parallel: 1             # 串行,macos-14 优先
       matrix:
-        os: [macos-14, macos-15-intel]  # arm64 + x86_64 (macos-13 已退役,2026)
+        os: [macos-14]  # 仅 Apple Silicon (arm64);Intel 版已砍(用户全是 M 芯片)
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -133,7 +133,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: AI抠图-${{ matrix.os == 'macos-14' && 'arm64' || 'x86_64' }}
+          name: AI抠图-mac-arm64
           path: dist/*.zip
 
   # 构建成功后自动发布/更新固定「Latest」Release(每次 push 覆盖)。
@@ -154,19 +154,19 @@ jobs:
           tag_name: latest
           name: AI抠图 Latest
           body: |
-            AI 智能抠图 / 视频背景移除 — macOS 桌面版
+            AI 智能抠图 / 视频背景移除 — macOS 桌面版 (Apple Silicon)
 
             ## 下载
             - **AI抠图-mac-arm64.zip** — Apple Silicon (M1/M2/M3/M4)
-            - **AI抠图-mac-x86_64.zip** — Intel Mac
 
             ## 使用
-            1. 下载对应架构的 zip 并解压
+            1. 下载 zip 并解压
             2. 打开 `AI抠图` 文件夹,双击 `AI抠图` 启动
             3. 首次打开若被 Gatekeeper 拦截(未签名):
                在「终端」中执行 `xattr -cr "AI抠图文件夹路径"` 后重试
 
             ## 说明
+            - 视频默认 CPU 推理(画面稳定);CoreML 加速为实验性开关,默认关闭,可在设置中开启
             - 自动更新:每次代码推送后此 Release 自动刷新为最新构建
           files: dist/*.zip
           overwrite: true     # 覆盖同名资产,实现「自动更新 Latest」

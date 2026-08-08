@@ -100,22 +100,27 @@ def _selftest() -> int:
         try:
             from bgremover.core import rvm as _rvm
             cases = [
-                # (platform, avail, prefer_gpu, expected)
-                ("win32", ["DmlExecutionProvider", "CPUExecutionProvider"], True,
+                # (platform, avail, prefer_gpu, enable_coreml, expected)
+                ("win32", ["DmlExecutionProvider", "CPUExecutionProvider"], True, False,
                  ["DmlExecutionProvider", "CPUExecutionProvider"]),
-                ("win32", ["CPUExecutionProvider"], True, ["CPUExecutionProvider"]),
-                ("darwin", ["CoreMLExecutionProvider", "CPUExecutionProvider"], True,
-                 ["CoreMLExecutionProvider", "CPUExecutionProvider"]),
-                ("darwin", ["CPUExecutionProvider"], True, ["CPUExecutionProvider"]),
-                ("linux", ["CPUExecutionProvider"], True, ["CPUExecutionProvider"]),
-                ("win32", ["DmlExecutionProvider", "CPUExecutionProvider"], False,
+                ("win32", ["CPUExecutionProvider"], True, False, ["CPUExecutionProvider"]),
+                # darwin 默认 CPU(enable_coreml=False)
+                ("darwin", ["CoreMLExecutionProvider", "CPUExecutionProvider"], True, False,
                  ["CPUExecutionProvider"]),
+                ("darwin", ["CPUExecutionProvider"], True, False, ["CPUExecutionProvider"]),
+                ("linux", ["CPUExecutionProvider"], True, False, ["CPUExecutionProvider"]),
+                ("win32", ["DmlExecutionProvider", "CPUExecutionProvider"], False, False,
+                 ["CPUExecutionProvider"]),
+                # enable_coreml=True 才优先 CoreML
+                ("darwin", ["CoreMLExecutionProvider", "CPUExecutionProvider"], True, True,
+                 ["CoreMLExecutionProvider", "CPUExecutionProvider"]),
+                ("darwin", ["CPUExecutionProvider"], True, True, ["CPUExecutionProvider"]),
             ]
-            for plat, avail, gpu, exp in cases:
-                got = _rvm._resolve_provider(plat, avail, gpu)
+            for plat, avail, gpu, ec, exp in cases:
+                got = _rvm._resolve_provider(plat, avail, gpu, enable_coreml=ec)
                 if got != exp:
                     ok_prov = False
-                    print(f"selftest provider branch FAIL: {plat}/{avail}/{gpu} -> {got} (exp {exp})")
+                    print(f"selftest provider branch FAIL: {plat}/{avail}/{gpu}/ec={ec} -> {got} (exp {exp})")
             print(f"selftest provider branches: {'OK' if ok_prov else 'FAIL'}")
         except Exception as e:  # noqa: BLE001
             print(f"selftest provider branches FAIL: {e!r}")

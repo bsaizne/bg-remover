@@ -65,6 +65,7 @@ class AppConfig:
     norm_mode: str = "auto"  # 模型归一化模式: auto / 255 / imagenet
     frame_step: int = 1  # 视频跳帧:每 N 帧处理一帧,其余复用前帧(1=不跳帧)
     export_png_sequence: bool = False  # 调试:同时导出 PNG 帧序列
+    enable_coreml: bool = False  # Mac 实验性:启用 CoreML 视频加速(默认关闭,CoreML 对 RVM 状态循环不可靠)
 
     @classmethod
     def load(cls) -> "AppConfig":
