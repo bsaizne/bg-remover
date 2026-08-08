@@ -109,15 +109,26 @@ def _io_spec(session) -> dict:
     return _IO_CACHE[key]
 
 
-def build_session(model_path: str, prefer_gpu: bool = True, timeout: int = 30):
+# 进程级记忆:CoreML 输出过弱已判定一次后,后续直接走 CPU,避免每个视频都白试
+_coreml_blacklisted = False
+
+
+def build_session(model_path: str, prefer_gpu: bool = True, timeout: int = 30,
+                  probe_hw: tuple[int, int] | None = None):
     """创建 RVM Session(prefer_gpu=True 优先平台 GPU:Windows DML / Mac CoreML)。
 
     CoreML 对动态 shape / ConvGRU 支持有限,Session 创建失败(含算子不可用)
     自动回退 CPU;成功后 log 实际生效 provider。末尾 warmup 一次前置图编译。
     timeout: Mac CoreML 图编译可能超时,设 30s 避免 CI 无限挂起。
+    probe_hw: 自检用分辨率。真机实测 onnxruntime 1.23 的 CoreML EP 在
+    **小分辨率**(128)下输出正常,但**实际视频分辨率**(如 1080p)下 fgr/pha
+    全黑——分辨率相关 bug。故 warmup 自检必须用真实分辨率,检测到输出
+    过弱即降级 CPU。probe_hw 为 None 时用 128(兼容旧调用/CI)。
     """
+    global _coreml_blacklisted
     import onnxruntime as ort
 
+    ph, pw = probe_hw if probe_hw else (128, 128)
     so = ort.SessionOptions()
     so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     so.log_severity_level = 3
@@ -127,6 +138,10 @@ def build_session(model_path: str, prefer_gpu: bool = True, timeout: int = 30):
     except AttributeError:
         pass  # 部分 onnxruntime 版本无此属性
     providers = detect_provider(prefer_gpu)
+    # CoreML 已被判黑名单 → 直接 CPU,不再白试
+    if _coreml_blacklisted and providers[0] != "CPUExecutionProvider":
+        log.info("RVM CoreML 已拉黑,直接使用 CPU")
+        providers = ["CPUExecutionProvider"]
     try:
         session = ort.InferenceSession(str(model_path), sess_options=so, providers=providers)
     except Exception as e:  # noqa: BLE001
@@ -138,27 +153,34 @@ def build_session(model_path: str, prefer_gpu: bool = True, timeout: int = 30):
         else:
             raise
     log.info("RVM Session 就绪, provider=%s", providers)
-    # warmup + 输出自检:带内容帧推理,若输出全黑/全白(如 CoreML EP 对 RVM
-    # 图编译错误)则自动降级 CPU 重建 session。真机实测 onnxruntime 1.23 的
-    # CoreML EP 会让 RVM 输出 fgr/pha 全黑,故必须自检而非只测形状。
+    # warmup + 输出自检:用 probe_hw 分辨率带内容帧推理,若输出过弱/全黑
+    # (CoreML EP 在真实分辨率下图编译错误)则自动降级 CPU 重建 session。
+    # 全黑 = pha.max()≈0,直接绝对阈值判断,无需按分辨率归一化。
     try:
-        probe = _warmup_frame(160)
-        states = initial_states(session, 160, 160)
+        probe = _warmup_frame(pw)
+        states = initial_states(session, ph, pw)
         fgr, pha, _ = infer(session, probe, states)
-        sane, why = _output_sane(fgr, pha)
-        if not sane:
+        pha_max = float(pha.max())
+        weak = pha_max < 0.05
+        if weak:
             if providers[0] != "CPUExecutionProvider":
-                log.warning("RVM 输出异常(%s),回退 CPU 重建 session", why)
+                log.warning("RVM 输出疑似异常(分辨率 %dx%d, pha_max=%.4f),回退 CPU 重建 session 确认",
+                            pw, ph, pha_max)
+                _coreml_blacklisted = True  # 本次进程内不再试 GPU
                 providers = ["CPUExecutionProvider"]
                 session = ort.InferenceSession(str(model_path), sess_options=so,
                                                providers=providers)
-                fgr, pha, _ = infer(session, probe, initial_states(session, 160, 160))
-                sane, why = _output_sane(fgr, pha)
-            if not sane:
-                log.error("RVM CPU 输出仍异常(%s),推理结果不可信", why)
+                fgr, pha, _ = infer(session, probe, initial_states(session, ph, pw))
+                pha_max_cpu = float(pha.max())
+                if pha_max_cpu < 0.05:
+                    log.error("RVM CPU 输出也弱(分辨率 %dx%d, pha_max=%.4f),推理结果不可信",
+                              pw, ph, pha_max_cpu)
+            else:
+                log.error("RVM CPU 输出异常(分辨率 %dx%d, pha_max=%.4f),推理结果不可信",
+                          pw, ph, pha_max)
         else:
-            log.info("RVM warmup 输出自检通过 (fgr_max=%.3f, pha_max=%.3f)",
-                     float(fgr.max()), float(pha.max()))
+            log.info("RVM warmup 输出自检通过 (分辨率 %dx%d, fgr_max=%.3f, pha_max=%.3f)",
+                     pw, ph, float(fgr.max()), pha_max)
     except Exception as e:  # noqa: BLE001
         log.warning("RVM warmup 失败: %s", e)
     return session

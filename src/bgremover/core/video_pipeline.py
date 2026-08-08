@@ -198,7 +198,9 @@ class VideoPipeline:
                 writer.start()
 
             # ---- RVM 单进程顺序推理(带循环状态)----
-            session = rvm.build_session(self.model_path)
+            # probe_hw=实际处理分辨率:真机实测 1.23 CoreML EP 小图正常、大图全黑,
+            # 必须用真实分辨率 warmup 自检,输出过弱自动降级 CPU。
+            session = rvm.build_session(self.model_path, probe_hw=(ph, pw))
             states = rvm.initial_states(session, ph, pw)
             down = rvm.DOWNSAMPLE_RATIO
             recovered = 0  # 因解码中断用最后有效帧填充的帧数
