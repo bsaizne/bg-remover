@@ -139,3 +139,38 @@ jobs:
         with:
           name: AI抠图-${{ matrix.os == 'macos-14' && 'arm64' || 'x86_64' }}
           path: dist/*.zip
+
+  # 构建成功后自动发布/更新固定「Latest」Release(每次 push 覆盖)。
+  # Release 资产是公开 URL,Mac 用户可直链下载,无需登录;国内可用镜像加速。
+  release:
+    needs: build              # 双平台都成功后才会发布,避免发残包
+    runs-on: ubuntu-latest    # 不用 Mac runner 省配额;GitHub 内网下载快
+    permissions:
+      contents: write         # 允许创建/更新 Release 与资产
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: AI抠图-*
+          merge-multiple: true
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: AI抠图 Latest
+          body: |
+            AI 智能抠图 / 视频背景移除 — macOS 桌面版
+
+            ## 下载
+            - **AI抠图-mac-arm64.zip** — Apple Silicon (M1/M2/M3/M4)
+            - **AI抠图-mac-x86_64.zip** — Intel Mac
+
+            ## 使用
+            1. 下载对应架构的 zip 并解压
+            2. 打开 `AI抠图` 文件夹,双击 `AI抠图` 启动
+            3. 首次打开若被 Gatekeeper 拦截(未签名):
+               在「终端」中执行 `xattr -cr "AI抠图文件夹路径"` 后重试
+
+            ## 说明
+            - 自动更新:每次代码推送后此 Release 自动刷新为最新构建
+          files: dist/*.zip
+          overwrite: true     # 覆盖同名资产,实现「自动更新 Latest」
