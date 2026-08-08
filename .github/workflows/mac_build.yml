@@ -15,7 +15,7 @@ jobs:
       fail-fast: false            # 一个架构失败不影响另一个
       max-parallel: 1             # 串行,macos-14 优先
       matrix:
-        os: [macos-14, macos-13]  # arm64 + x86_64
+        os: [macos-14, macos-15-intel]  # arm64 + x86_64 (macos-13 已退役,2026)
     runs-on: ${{ matrix.os }}
 
     steps:
