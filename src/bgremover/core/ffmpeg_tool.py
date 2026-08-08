@@ -143,13 +143,21 @@ def _parse_fps(s: str) -> float:
         return 0.0
 
 
-def build_read_cmd(ffmpeg: str, src: str, fps: float) -> list[str]:
-    """读端:rawvideo pipe,固定帧率归一。"""
+def build_read_cmd(ffmpeg: str, src: str, fps: float,
+                   width: int = 0, height: int = 0) -> list[str]:
+    """读端:rawvideo pipe,固定帧率归一 + 可选缩放。
+
+    width/height > 0 时在 -vf 里加 scale,使读端输出尺寸与编码端 `-s`
+    一致,避免帧字节错位(源分辨率 > max_resolution 时曾导致扫描线/模糊)。
+    """
+    vf = [f"fps={fps:.6f}"]
+    if width > 0 and height > 0:
+        vf.append(f"scale={width}:{height}")
     return [
         ffmpeg, "-hide_banner", "-loglevel", "error",
         "-i", src,
         "-map", "0:v:0", "-an",
-        "-vf", f"fps={fps:.6f}",
+        "-vf", ",".join(vf),
         "-pix_fmt", "rgb24",
         "-c:v", "rawvideo",
         "-f", "rawvideo", "pipe:1",

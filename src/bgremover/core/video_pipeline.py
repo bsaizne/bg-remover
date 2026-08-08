@@ -169,7 +169,8 @@ class VideoPipeline:
                     audio_wav = ""
 
             # ---- 解码进程 ----
-            read_cmd = ff.build_read_cmd(ffmpeg, src, fps)
+            # 读端按缩放后尺寸输出,保证帧字节数与 frame_bytes 一致
+            read_cmd = ff.build_read_cmd(ffmpeg, src, fps, pw, ph)
             proc_in = subprocess.Popen(
                 read_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0)
