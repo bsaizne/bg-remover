@@ -99,13 +99,18 @@ jobs:
           import sys, numpy as np
           from bgremover.core import rvm, model_store
           mp = model_store.resolve_model_path('video'); assert mp.exists()
-          sess = rvm.build_session(str(mp), prefer_gpu=False, timeout=10)
-          h, w = 128, 128
-          rgb = np.random.rand(h, w, 3).astype(np.float32)
-          states = rvm.initial_states(sess, h, w)
-          fgr, pha, states2 = rvm.infer(sess, rgb, states)
-          assert fgr.shape == (3, h, w) and pha.shape == (1, h, w)
-          print(f'RVM: backend={rvm.video_backend()} fgr={fgr.shape} pha={pha.shape} -> OK')
+          # prefer_gpu=True:走真实平台 provider(arm64 上 CoreML,Intel 上 CPU),
+          # 并带输出自检(全黑视为失败)。随机帧对 RVM 本就近全 0 matte,故用带结构自检帧。
+          sess = rvm.build_session(str(mp), prefer_gpu=True, timeout=20)
+          probe = rvm._warmup_frame(128)
+          states = rvm.initial_states(sess, 128, 128)
+          fgr, pha, states2 = rvm.infer(sess, probe, states)
+          assert fgr.shape == (3, 128, 128) and pha.shape == (1, 128, 128)
+          sane, why = rvm._output_sane(fgr, pha)
+          if not sane:
+              print(f'RVM OUTPUT BROKEN: {why}')
+              sys.exit(2)  # 非 0 让 FAILED=1
+          print(f'RVM: backend={rvm.video_backend()} fgr={fgr.shape} pha={pha.shape} pha_max={pha.max():.3f} -> OK')
           " 2>&1 || FAILED=1
           echo "=== 4. ffmpeg ==="
           PYTHONPATH=src python -c "

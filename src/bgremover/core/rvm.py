@@ -59,6 +59,39 @@ def video_backend() -> str:
         return "CPU"
 
 
+def _output_sane(fgr: np.ndarray, pha: np.ndarray) -> tuple[bool, str]:
+    """检查推理输出是否合理,用于 warmup 自检(区分真全黑 vs 帧本身全黑)。
+
+    fgr/pha 全 0 或全 1 视为异常;有过渡(存在 0~1 之间的值)视为正常。
+    黑帧输入下,正常的 RVM 输出 pha 应接近全 0(fgr 无意义),故阈值放宽:
+    只要 pha 有任一非零且不饱和即视为合理。
+    """
+    try:
+        fgr_max = float(fgr.max()) if fgr.size else 0.0
+        pha_max = float(pha.max()) if pha.size else 0.0
+        pha_min = float(pha.min()) if pha.size else 0.0
+        # 全零(黑) 或全一(饱和白) 都是异常;有中间值说明有内容
+        if fgr_max < 1e-4 and pha_max < 1e-4:
+            return False, f"输出全黑 (fgr_max={fgr_max:.4f}, pha_max={pha_max:.4f})"
+        if fgr_max > 0.99 and pha_max > 0.99 and pha_min > 0.99:
+            return False, f"输出饱和全白 (fgr_max={fgr_max:.4f}, pha_max={pha_max:.4f})"
+        return True, ""
+    except Exception as e:  # noqa: BLE001
+        return False, f"输出检查异常: {e}"
+
+
+def _warmup_frame(size: int = 160) -> np.ndarray:
+    """带内容的自检帧(渐变 + 圆),避免全黑帧无法判断输出好坏。"""
+    x = np.linspace(0, 1, size).astype(np.float32)
+    xv, yv = np.meshgrid(x, x)
+    img = np.zeros((size, size, 3), dtype=np.float32)
+    img[..., 0] = 0.6 + 0.4 * xv          # R 渐变
+    img[..., 1] = 0.6 * (1 - yv)          # G 渐变
+    img[..., 2] = 0.4                      # B 恒定
+    cv2.circle(img, (size // 2, size // 2), size // 3, (0.9, 0.9, 0.9), -1)
+    return img
+
+
 def _io_spec(session) -> dict:
     key = id(session)
     if key not in _IO_CACHE:
@@ -105,11 +138,27 @@ def build_session(model_path: str, prefer_gpu: bool = True, timeout: int = 30):
         else:
             raise
     log.info("RVM Session 就绪, provider=%s", providers)
-    # warmup:小尺寸黑帧 + 零状态,把 GPU 首次图编译的延迟前置到任务开头
+    # warmup + 输出自检:带内容帧推理,若输出全黑/全白(如 CoreML EP 对 RVM
+    # 图编译错误)则自动降级 CPU 重建 session。真机实测 onnxruntime 1.23 的
+    # CoreML EP 会让 RVM 输出 fgr/pha 全黑,故必须自检而非只测形状。
     try:
-        states = initial_states(session, 128, 128)
-        black = np.zeros((128, 128, 3), dtype=np.float32)
-        infer(session, black, states)
+        probe = _warmup_frame(160)
+        states = initial_states(session, 160, 160)
+        fgr, pha, _ = infer(session, probe, states)
+        sane, why = _output_sane(fgr, pha)
+        if not sane:
+            if providers[0] != "CPUExecutionProvider":
+                log.warning("RVM 输出异常(%s),回退 CPU 重建 session", why)
+                providers = ["CPUExecutionProvider"]
+                session = ort.InferenceSession(str(model_path), sess_options=so,
+                                               providers=providers)
+                fgr, pha, _ = infer(session, probe, initial_states(session, 160, 160))
+                sane, why = _output_sane(fgr, pha)
+            if not sane:
+                log.error("RVM CPU 输出仍异常(%s),推理结果不可信", why)
+        else:
+            log.info("RVM warmup 输出自检通过 (fgr_max=%.3f, pha_max=%.3f)",
+                     float(fgr.max()), float(pha.max()))
     except Exception as e:  # noqa: BLE001
         log.warning("RVM warmup 失败: %s", e)
     return session
