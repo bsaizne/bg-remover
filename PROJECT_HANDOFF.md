@@ -61,7 +61,7 @@ CI 产物未签名(需 Apple Developer 证书 $99/年)。Gatekeeper 拦截时**�
 ## 3. 未完成功能 ❌
 
 ### 待 Mac 真机/CI 验证
-- macOS CoreML GPU 加速实际效果(代码已完成,`build_session` 有 session_timeout 30s 防挂)
+- macOS CoreML GPU 加速实际效果:**发现 bug**——1.23 CoreML EP 输出全黑(2026-08-08),已加自动降级 CPU;需重测确认降级生效或 CoreML 修好
 - macOS PyInstaller 打包后的 .app 多进程是否正常
 - macos-15-intel(x86_64 Intel) CI artifact 构建结果待确认(2026-08-08 更换 runner)
 
@@ -160,7 +160,7 @@ D:\claudework\bg-remover\
 | `core/config.py` | AppConfig dataclass;darwin 数据目录→~/Library/Application Support/bgremover |
 | `core/model_store.py` | 双模型槽位,download 断点续传,内置模型复制 |
 | `core/matting.py` | ISNet:resize 1024+/255→推理→sigmoid→合成 RGBA;init_worker 锁 CPU providers;**refine_mask(腐蚀/膨胀/羽化) + compose_rgba_from_alpha(2026-08)** |
-| `core/rvm.py` | RVM:darwin→CoreML 优先+失败降级;build_session(session_timeout);infer 状态循环;warp_blend_pha(边缘光流融合) |
+| `core/rvm.py` | RVM:darwin→CoreML 优先+失败降级;**build_session 输出自检(_output_sane+带结构warmup帧)自动降级CPU(2026-08-08 修全黑bug)**;warp_blend_pha(边缘光流融合) |
 | `core/ffmpeg_tool.py` | locate_ffmpeg(brew>打包内置>PATH);probe_video(ffmpeg -i 正则,无 ffprobe) |
 | `core/video_pipeline.py` | 双线程解码/编码;RVM 顺序推理;is_recovery 标志位;光流(仅正常帧);每5帧 preview_rgba |
 | `core/image_pipeline.py` | 并行/串行;Mac _default_workers() 固定 2 |
@@ -298,6 +298,7 @@ ffmpeg 解码(rawvideo,rgb24) → _Reader 线程 → 主循环:
 10. **cancel_event 可能 None**:检查 `cancel_event is not None and cancel_event.is_set()`
 11. **numpy 数组不能用于 if 条件**:`if array:`→`if array is not None:`
 12. **实时预览用 np.frombuffer**:不能直接用 QImage(bytes,...),PySide6 下 QImage 构造后不能 hold bytes 引用
+13. **onnxruntime 1.23 CoreML EP 会让 RVM 输出全黑**(2026-08-08 Mac 真机确认):build_session 已加输出自检(_output_sane,带结构 warmup 帧)+ 自动降级 CPU。CI selftest 必须用 prefer_gpu=True 走真实 provider,否则测不到此 bug
 
 ---
 
