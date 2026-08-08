@@ -3,7 +3,7 @@
 > **用途**:复制到新的 Claude 对话中,让新对话无缝继续开发。
 > **项目路径**:`D:\claudework\bg-remover`
 > **Git 仓库**:https://github.com/bsaizne/bg-remover(已推送,含 CI)
-> **更新日期**:2026-08-07
+> **更新日期**:2026-08-08
 
 ---
 
@@ -11,7 +11,7 @@
 
 macOS 桌面应用,用 onnxruntime 推理 AI 模型自动移除图片与视频背景。**这是一个带可视化 UI 窗口的桌面软件——用户双击打开后看到 PySide6 窗口,可直接拖拽图片/视频进行抠图。** 视频推理走 CoreML GPU(Apple Silicon 原生加速),无 GPU 自动回退 CPU。
 
-**当前全部代码在 Windows 开发机(R5 5600)上完成,通过 GitHub Actions CI 在 macos-14(arm64)上成功构建 artifact(379MB);macos-13(x86_64)排队中。Mac 真机验证待用户有 Mac 时进行。**
+**当前全部代码在 Windows 开发机(R5 5600)上完成,通过 GitHub Actions CI 在 macos-14(arm64)与 macos-15-intel(x86_64)上构建 artifact(arm64 379MB)。macos-13 runner 已于 2025-09 退役,2026-08 已改用 macos-15-intel。Mac 真机验证待用户有 Mac 时进行。**
 
 ### 产物形态
 - CI artifact(`AI抠图-mac-arm64.zip`)解压后是 `AI抠图/` 目录,Mac 上双击 `AI抠图` 即可打开 GUI 窗口
@@ -30,6 +30,7 @@ CI 产物未签名(需 Apple Developer 证书 $99/年)。Gatekeeper 拦截时**�
 - 批量抠图→透明 PNG(4 通道 RGBA),背景替换(纯色/图片)
 - 棋盘格透明预览(原图/结果切换)
 - 并行处理(multiprocessing.Pool,**Mac 固定 2 进程**,统一内存自适应)
+- **mask 边缘编辑**:选中已抠图结果→腐蚀/膨胀/羽化滑块实时预览→导出精修图(`core/matting.refine_mask`,2026-08)
 
 ### 视频处理
 - 导入(mp4/mov/avi/mkv/webm/flv),元信息(分辨率/帧率/时长/大小/有无音频)
@@ -62,10 +63,10 @@ CI 产物未签名(需 Apple Developer 证书 $99/年)。Gatekeeper 拦截时**�
 ### 待 Mac 真机/CI 验证
 - macOS CoreML GPU 加速实际效果(代码已完成,`build_session` 有 session_timeout 30s 防挂)
 - macOS PyInstaller 打包后的 .app 多进程是否正常
-- macos-13(x86_64 Intel) CI artifact 待出
+- macos-15-intel(x86_64 Intel) CI artifact 构建结果待确认(2026-08-08 更换 runner)
 
 ### P2(后续迭代)
-- mask 边缘编辑(交互式腐蚀/膨胀/羽化)
+- ~~mask 边缘编辑~~ **已完成**(腐蚀/膨胀/羽化,2026-08-08)
 - 代码签名(需 Apple Developer 证书 $99/年,未签名需右键打开)
 
 ### 已砍掉(勿重提)
@@ -158,7 +159,7 @@ D:\claudework\bg-remover\
 | `app.py` | freeze_support 无条件调用;setup_logging(app+error.log+环境头);--selftest(含 provider 分支断言) |
 | `core/config.py` | AppConfig dataclass;darwin 数据目录→~/Library/Application Support/bgremover |
 | `core/model_store.py` | 双模型槽位,download 断点续传,内置模型复制 |
-| `core/matting.py` | ISNet:resize 1024+/255→推理→sigmoid→合成 RGBA;init_worker 锁 CPU providers |
+| `core/matting.py` | ISNet:resize 1024+/255→推理→sigmoid→合成 RGBA;init_worker 锁 CPU providers;**refine_mask(腐蚀/膨胀/羽化) + compose_rgba_from_alpha(2026-08)** |
 | `core/rvm.py` | RVM:darwin→CoreML 优先+失败降级;build_session(session_timeout);infer 状态循环;warp_blend_pha(边缘光流融合) |
 | `core/ffmpeg_tool.py` | locate_ffmpeg(brew>打包内置>PATH);probe_video(ffmpeg -i 正则,无 ffprobe) |
 | `core/video_pipeline.py` | 双线程解码/编码;RVM 顺序推理;is_recovery 标志位;光流(仅正常帧);每5帧 preview_rgba |
@@ -304,9 +305,8 @@ ffmpeg 解码(rawvideo,rgb24) → _Reader 线程 → 主循环:
 
 | 优先级 | 项目 | 说明 |
 |--------|------|------|
-| **最高** | Mac CI x86_64 artifact | macos-13 排队中;本地有 1 个 commit(1866ac7)未推送:fail-fast:false |
+| **最高** | Mac CI x86_64 artifact 确认 | macos-13 已退役→改 macos-15-intel(2026-08-08);需确认双平台构建成功 |
 | **高** | Mac 真机验证 | CoreML 实际加速效果、frozen .app 多进程是否正常;`ort.get_available_providers()` 是否含 CoreML |
-| 中 | mask 边缘编辑 | 交互式腐蚀/膨胀/羽化滑块,UI 复杂度大 |
 | 低 | 代码签名 | 需 Apple Developer 证书($99/年) |
 | 不做 | 多视频并行 | 已砍,与 Mac 统一内存冲突 |
 
@@ -340,7 +340,8 @@ PYTHONPATH=src .venv/Scripts/python.exe -c "import sys; sys.argv=['x','--selftes
 ### CI
 - workflow:`.github/workflows/mac_build.yml`
 - 步骤:brew ffmpeg→pip 安装→下载模型(直连 GitHub)→selftest(容错)→pyinstaller→zip→upload artifact
-- 当前状态:macos-14 arm64 success(artifact 379MB);macos-13 x86_64 排队中
+- **runner 矩阵**:`[macos-14, macos-15-intel]`。macos-13 已于 2025-09 被 GitHub 退役(镜像下线,macos-13 job 会永久排队),2026-08-08 改为官方 Intel 替代 `macos-15-intel`
+- 当前状态:macos-14 arm64 success(artifact 379MB);macos-15-intel x86_64 更换后待确认
 
 ### 用户需求
 - 用户无 Mac 实体机,但要把软件发给 Mac 用户用
@@ -359,9 +360,9 @@ PYTHONPATH=src .venv/Scripts/python.exe -c "import sys; sys.argv=['x','--selftes
 项目是 macOS AI 抠图/视频背景移除桌面软件(PySide6 + onnxruntime CoreML),位于 D:\claudework\bg-remover。
 文档里完整记录了已完成功能/目录结构/文件作用/数据模型/业务逻辑/已修bug/下一步计划。
 当前待办(文档第 9 节):
-1. macos-13 x86_64 CI artifact:本地有1个commit(1866ac7)未推送,需先push
+1. 确认 macos-15-intel (x86_64) CI artifact 构建成功(macos-13 已退役,2026-08-08 已改 runner)
 2. Mac 真机验证:待用户有 Mac 或引导下载 CI artifact 测试
-3. P2:mask 边缘编辑/代码签名(需 Apple Developer 证书)
+3. P2:代码签名(需 Apple Developer 证书)已做 mask 边缘编辑
 关键环境:
 * 开发机是 Windows(R5 5600,无 Mac),代码在 Win 上改,CI 验证 Mac 构建
 * Python .venv(3.12),命令带 PYTHONPATH=src,绝对路径 D:\claudework\bg-remover\.venv\Scripts\python.exe
