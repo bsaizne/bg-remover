@@ -96,7 +96,7 @@ src/bgremover/
 
 ## 已知限制
 
-- 图片 CPU 推理约 1.5s/帧(ISNet 1024×1024);视频 RVM 约 0.1s/帧(CPU),DirectML GPU 约 1.5x 加速(CoreML 加速需 Mac 真机验证)
+- 图片 CPU 推理约 1.5s/帧(ISNet 1024×1024);视频 RVM 约 0.1s/帧(CPU),DirectML GPU 约 1.5x 加速。
 - VFR 源视频按平均帧率归一
 - 透明视频需在支持 Alpha 的播放器/剪辑软件中查看(如 VLC、Premiere)
 - 视频推理为单进程顺序(RVM 循环模型必须逐帧回传状态)
