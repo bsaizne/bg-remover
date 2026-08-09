@@ -1,10 +1,10 @@
 # AI 智能抠图 / 视频背景移除
 
-跨平台(Windows/macOS)桌面应用,用 onnxruntime 推理 AI 模型自动移除图片与视频背景。支持批量处理、透明导出、背景替换、实时预览与日志排错。
+Windows/macOS桌面应用,用 onnxruntime 推理 AI 模型自动移除图片与视频背景。支持批量处理、透明导出、背景替换、实时预览与日志排错。
 
 ## 功能
 
-- **图片**:批量导入(jpg/png/webp/bmp/tif),ISNet 模型一键抠图导出透明 PNG,或替换为纯色/图片背景;棋盘格原图/结果预览;多进程并行(进程数按平台+内存自适应)。
+- **图片**:批量导入(jpg/png/webp/bmp/tif),ISNet 模型一键抠图导出透明 PNG,或替换为纯色/图片背景;棋盘格原图/结果预览;多进程串行。
 - **视频**:RobustVideoMatting(RVM)时序模型逐帧抠图,天然连贯。输出:
   - 透明 MOV(ProRes 4444 + Alpha) / 透明 WebM(VP9 + Alpha)
   - 替换背景 MP4(H.264),背景可为纯色或图片
@@ -13,7 +13,6 @@
   - **光流帧间传播**:帧间 matte 边缘平滑,减少 RVM 残留闪烁
 - **GPU 加速(平台化)**:
   - Windows:DirectML(DmlExecutionProvider),兼容 NVIDIA/AMD/Intel
-  - macOS:CoreML(CoreMLExecutionProvider),支持 Intel + Apple Silicon
   - 无 GPU 自动回退 CPU;图片保留 CPU 并行
 - 双层进度(帧 + 总任务)+ 预估剩余时间(EMA 平滑)
 - 暂停/继续/取消;视频失败自动重试(最多 2 次)
