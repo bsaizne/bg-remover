@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget)
+                               QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
+                               QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout,
+                               QWidget)
 
 from bgremover.core.config import AppConfig
 
@@ -47,6 +48,14 @@ class SettingsDialog(QDialog):
         idx = {"auto": 0, "255": 1, "imagenet": 2}.get(config.norm_mode, 0)
         self.norm_mode.setCurrentIndex(idx)
         form.addRow("模型归一化:", self.norm_mode)
+
+        # RVM 解码精细度:调大提升边缘精度(更慢),默认 0.25 官方速度优先
+        self.downsample = QDoubleSpinBox()
+        self.downsample.setRange(0.1, 1.0)
+        self.downsample.setSingleStep(0.05)
+        self.downsample.setDecimals(2)
+        self.downsample.setValue(config.downsample_ratio)
+        form.addRow("RVM 解码精细度(越大越精细,越慢):", self.downsample)
 
         # 实验性 CoreML 加速(Mac)。默认关闭:CoreML 对 RVM 状态循环不可靠。
         import sys as _sys
@@ -92,6 +101,7 @@ class SettingsDialog(QDialog):
         self.config.max_resolution = self.max_res.value()
         self.config.keep_audio = self.keep_audio.currentIndex() == 0
         self.config.norm_mode = ["auto", "255", "imagenet"][self.norm_mode.currentIndex()]
+        self.config.downsample_ratio = self.downsample.value()
         if getattr(self, "enable_coreml", None) is not None:
             self.config.enable_coreml = self.enable_coreml.isChecked()
         if self.ffmpeg_edit.text().strip():

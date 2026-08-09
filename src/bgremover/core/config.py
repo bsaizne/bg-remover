@@ -66,6 +66,7 @@ class AppConfig:
     frame_step: int = 1  # 视频跳帧:每 N 帧处理一帧,其余复用前帧(1=不跳帧)
     export_png_sequence: bool = False  # 调试:同时导出 PNG 帧序列
     enable_coreml: bool = False  # Mac 实验性:启用 CoreML 视频加速(默认关闭,CoreML 对 RVM 状态循环不可靠)
+    downsample_ratio: float = 0.25  # RVM 解码精细度(官方默认 0.25 速度优先;调大提升边缘精度,更慢)
 
     @classmethod
     def load(cls) -> "AppConfig":

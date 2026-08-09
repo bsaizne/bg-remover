@@ -25,7 +25,8 @@ class VideoWorker(BaseWorker):
                  background: str = "", bg_color: str = "#000000",
                  task_index: int = 1, task_total: int = 1,
                  max_retries: int = 2, parent=None,
-                 enable_coreml: bool = False):
+                 enable_coreml: bool = False,
+                 downsample_ratio: float = 0.25):
         super().__init__(parent)
         self.src = src
         self.dst = dst
@@ -38,6 +39,7 @@ class VideoWorker(BaseWorker):
         self.task_total = task_total
         self.max_retries = max_retries
         self.enable_coreml = enable_coreml
+        self.downsample_ratio = downsample_ratio
 
     def run(self):
         t0 = time.monotonic()
@@ -79,7 +81,8 @@ class VideoWorker(BaseWorker):
                     progress_cb=cb,
                     pause_event=self.pause_event,
                     cancel_event=self.cancel_event,
-                    enable_coreml=self.enable_coreml)
+                    enable_coreml=self.enable_coreml,
+                    downsample_ratio=self.downsample_ratio)
             if res.cancelled:
                 res.ok = False  # 保持 finished 语义:取消也算未成功
             self.signals.finished.emit({

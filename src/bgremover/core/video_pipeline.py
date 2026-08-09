@@ -126,7 +126,8 @@ class VideoPipeline:
                 keep_audio: bool = True, background: str = "", bg_color: str = "#000000",
                 progress_cb=None, pause_event: Event | None = None,
                 cancel_event: Event | None = None,
-                enable_coreml: bool = False) -> VideoTaskResult:
+                enable_coreml: bool = False,
+                downsample_ratio: float = 0.25) -> VideoTaskResult:
         t0 = time.monotonic()
         ffmpeg = ff.locate_ffmpeg()
         meta = ff.probe_video(ffmpeg, src)
@@ -205,7 +206,7 @@ class VideoPipeline:
             session = rvm.build_session(self.model_path, probe_hw=(ph, pw),
                                         enable_coreml=enable_coreml)
             states = rvm.initial_states(session, ph, pw)
-            down = rvm.DOWNSAMPLE_RATIO
+            down = downsample_ratio
             recovered = 0  # 因解码中断用最后有效帧填充的帧数
             last_rgb = None  # 最后解码出的完整 RGB 帧(损坏帧恢复用)
             last_rgb_flow = None   # 光流参考:上一帧 RGB(正常帧)
