@@ -58,7 +58,7 @@ class AppConfig:
     output_dir: str = ""  # 空 => 每次询问,否则默认输出目录
     last_image_format: str = "png"  # png / 背景合成
     last_video_format: str = "mov"  # mov_alpha / webm_alpha / mp4_bg
-    max_resolution: int = 1280  # 视频长边限制,默认 1280px
+    max_resolution: int = 1920  # 视频长边限制,默认 1920px(精度优先;1280 更快)
     keep_audio: bool = True
     bg_color: str = "#00ff00"  # 替换背景纯色(默认绿幕)
     bg_image: str = ""  # 替换背景图片路径(空=纯色)
@@ -67,6 +67,8 @@ class AppConfig:
     export_png_sequence: bool = False  # 调试:同时导出 PNG 帧序列
     enable_coreml: bool = False  # Mac 实验性:启用 CoreML 视频加速(默认关闭,CoreML 对 RVM 状态循环不可靠)
     downsample_ratio: float = 0.25  # RVM 解码精细度(官方默认 0.25 速度优先;调大提升边缘精度,更慢)
+    edge_erode: int = 1  # 视频边缘去白边腐蚀强度(0=关,1=推荐,2-3=更强但细节损失)
+    shutdown_on_done: bool = False  # 全部视频处理完成后自动关机(仅 Windows,默认关闭)
 
     @classmethod
     def load(cls) -> "AppConfig":

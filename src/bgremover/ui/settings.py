@@ -43,19 +43,32 @@ class SettingsDialog(QDialog):
         self.keep_audio.setCurrentIndex(0 if config.keep_audio else 1)
         form.addRow("默认音频:", self.keep_audio)
 
+        import sys as _sys
+        self.shutdown_on_done = QCheckBox("全部视频处理完成后自动关机(Windows)")
+        self.shutdown_on_done.setChecked(config.shutdown_on_done)
+        if _sys.platform != "win32":
+            self.shutdown_on_done.setEnabled(False)  # 非 Windows 不支持
+        form.addRow("自动关机:", self.shutdown_on_done)
+
         self.norm_mode = QComboBox()
         self.norm_mode.addItems(["自动检测", "/255", "ImageNet"])
         idx = {"auto": 0, "255": 1, "imagenet": 2}.get(config.norm_mode, 0)
         self.norm_mode.setCurrentIndex(idx)
         form.addRow("模型归一化:", self.norm_mode)
 
-        # RVM 解码精细度:调大提升边缘精度(更慢),默认 0.25 官方速度优先
+        # RVM 解码精细度:实测 0.5 边缘精度无明显提升且更慢,保持默认 0.25 即可
         self.downsample = QDoubleSpinBox()
         self.downsample.setRange(0.1, 1.0)
         self.downsample.setSingleStep(0.05)
         self.downsample.setDecimals(2)
         self.downsample.setValue(config.downsample_ratio)
-        form.addRow("RVM 解码精细度(越大越精细,越慢):", self.downsample)
+        form.addRow("RVM 解码精细度(默认 0.25,不建议调大):", self.downsample)
+
+        # 视频边缘去白边:腐蚀强度(0=关,1=推荐,2-3=更强但细节损失)
+        self.edge_erode = QSpinBox()
+        self.edge_erode.setRange(0, 3)
+        self.edge_erode.setValue(config.edge_erode)
+        form.addRow("边缘去白边强度(0=关,1=推荐):", self.edge_erode)
 
         # 实验性 CoreML 加速(Mac)。默认关闭:CoreML 对 RVM 状态循环不可靠。
         import sys as _sys
@@ -102,6 +115,8 @@ class SettingsDialog(QDialog):
         self.config.keep_audio = self.keep_audio.currentIndex() == 0
         self.config.norm_mode = ["auto", "255", "imagenet"][self.norm_mode.currentIndex()]
         self.config.downsample_ratio = self.downsample.value()
+        self.config.edge_erode = self.edge_erode.value()
+        self.config.shutdown_on_done = self.shutdown_on_done.isChecked()
         if getattr(self, "enable_coreml", None) is not None:
             self.config.enable_coreml = self.enable_coreml.isChecked()
         if self.ffmpeg_edit.text().strip():

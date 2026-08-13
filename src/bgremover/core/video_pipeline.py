@@ -127,7 +127,8 @@ class VideoPipeline:
                 progress_cb=None, pause_event: Event | None = None,
                 cancel_event: Event | None = None,
                 enable_coreml: bool = False,
-                downsample_ratio: float = 0.25) -> VideoTaskResult:
+                downsample_ratio: float = 0.25,
+                edge_erode: int = 1) -> VideoTaskResult:
         t0 = time.monotonic()
         ffmpeg = ff.locate_ffmpeg()
         meta = ff.probe_video(ffmpeg, src)
@@ -260,6 +261,9 @@ class VideoPipeline:
                     # 恢复帧内容未变:清掉融合参考,避免累计乱 warp
                     last_pha_blend = None
                     last_rgb_flow = None
+                # 边缘去白边:轻微腐蚀 alpha(合成前),切掉半透明脏边
+                if edge_erode > 0:
+                    pha = rvm.erode_alpha(pha, edge_erode)
                 if is_png_seq:
                     # PNG 走 cv2.imwrite,期望 BGRA 字节序
                     cv2.imwrite(os.path.join(dst, f"frame_{done:05d}.png"),

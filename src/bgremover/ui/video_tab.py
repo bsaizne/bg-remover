@@ -38,6 +38,7 @@ class VideoTab(QWidget):
         self.queue_index = 0
         self._paused = False
         self._encoder_map = {}
+        self._all_ok = True  # 当前队列是否全部处理成功(关机判断用)
         self._build_ui()
         self.setAcceptDrops(True)
         self._check_encoders()
@@ -266,6 +267,7 @@ class VideoTab(QWidget):
             self.config.output_dir = out_dir
             self.config.save()
         self.queue_index = 0
+        self._all_ok = True  # 整批开始时重置成功标志
         self._process_next()
 
     def _process_next(self):
@@ -273,6 +275,12 @@ class VideoTab(QWidget):
             self._set_running(False)
             self.mw.show_total_progress(0, 0)
             self.mw.statusBar().showMessage("视频处理全部完成", 8000)
+            # 可选:全部成功后自动关机(仅用户开启且全部任务成功)
+            if (self.config.shutdown_on_done and self._all_ok
+                    and len(self.videos) > 0):
+                from bgremover.ui.dialogs import shutdown_countdown_dialog
+                if shutdown_countdown_dialog(self, seconds=30):
+                    self.mw.statusBar().showMessage("已关机", 8000)
             return
         v = self.videos[self.queue_index]
         src = v["path"]
@@ -293,7 +301,8 @@ class VideoTab(QWidget):
             background=background, bg_color=bg_color,
             task_index=self.queue_index + 1, task_total=len(self.videos), parent=self,
             enable_coreml=self.config.enable_coreml,
-            downsample_ratio=self.config.downsample_ratio)
+            downsample_ratio=self.config.downsample_ratio,
+            edge_erode=self.config.edge_erode)
         self.worker.signals.progress.connect(self._on_progress)
         self.worker.signals.finished.connect(self._on_finished)
         self.worker.signals.failed.connect(self._on_failed)
@@ -343,6 +352,7 @@ class VideoTab(QWidget):
 
     def _on_finished(self, result):
         if result.get("cancelled"):
+            self._all_ok = False  # 取消不算全部成功
             self.status_label.setText("已取消")
             self.mw.show_total_progress(0, 0)
             self._set_running(False)
@@ -354,6 +364,7 @@ class VideoTab(QWidget):
             self.mw.statusBar().showMessage(f"完成: {Path(out).name}", 8000)
             self._show_result_preview(out)
         else:
+            self._all_ok = False  # 失败不算全部成功
             err = result.get("error", "未知错误")
             self.status_label.setText(f"失败: {err}")
             from bgremover.core.config import logs_dir
@@ -365,6 +376,7 @@ class VideoTab(QWidget):
         self._process_next()
 
     def _on_failed(self, err):
+        self._all_ok = False  # 异常不算全部成功
         self.status_label.setText("异常: " + (err.splitlines()[0] if err else ""))
         self.mw.log_line(f"视频 worker 异常: {err}")
         from bgremover.ui.dialogs import show_error_dialog

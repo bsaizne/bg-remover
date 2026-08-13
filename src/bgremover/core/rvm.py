@@ -228,6 +228,20 @@ def infer(session, rgb: np.ndarray, states: list[np.ndarray],
     return fgr, pha, new_states
 
 
+def erode_alpha(pha: np.ndarray, px: int = 1) -> np.ndarray:
+    """边缘腐蚀 alpha mask,用于去白边。
+
+    白边 = 边缘半透明像素叠加了原背景残色。对 alpha 轻微腐蚀(px px)可
+    切掉这层脏边。px=0 原样返回。返回同 shape 的 float32 [0,1]。
+    """
+    if px <= 0:
+        return pha
+    a = pha[0] if pha.ndim == 3 else pha
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * px + 1, 2 * px + 1))
+    a = cv2.erode(a, k)
+    return np.clip(a, 0.0, 1.0).reshape(1, *a.shape).astype(np.float32)
+
+
 def compose_rgba(fgr: np.ndarray, pha: np.ndarray) -> np.ndarray:
     """前景 RGB + matte → (H,W,4) uint8 RGBA。
 
