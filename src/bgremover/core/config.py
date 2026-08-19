@@ -68,6 +68,7 @@ class AppConfig:
     enable_coreml: bool = False  # Mac 实验性:启用 CoreML 视频加速(默认关闭,CoreML 对 RVM 状态循环不可靠)
     downsample_ratio: float = 0.25  # RVM 解码精细度(官方默认 0.25 速度优先;调大提升边缘精度,更慢)
     edge_erode: int = 1  # 视频边缘去白边腐蚀强度(0=关,1=推荐,2-3=更强但细节损失)
+    edge_soften: float = 1.0  # 视频边缘优化:羽化+去色溢组合强度(0=关,1=推荐,最大2)
     shutdown_on_done: bool = False  # 全部视频处理完成后自动关机(仅 Windows,默认关闭)
 
     @classmethod

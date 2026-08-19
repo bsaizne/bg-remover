@@ -70,6 +70,14 @@ class SettingsDialog(QDialog):
         self.edge_erode.setValue(config.edge_erode)
         form.addRow("边缘去白边强度(0=关,1=推荐):", self.edge_erode)
 
+        # 边缘优化:羽化+去色溢组合(磨平锯齿+去白边),透明视频克制羽化
+        self.edge_soften = QDoubleSpinBox()
+        self.edge_soften.setRange(0.0, 2.0)
+        self.edge_soften.setSingleStep(0.1)
+        self.edge_soften.setDecimals(1)
+        self.edge_soften.setValue(config.edge_soften)
+        form.addRow("边缘优化强度(0=关,1=推荐,羽化+去白边):", self.edge_soften)
+
         # 实验性 CoreML 加速(Mac)。默认关闭:CoreML 对 RVM 状态循环不可靠。
         import sys as _sys
         if _sys.platform == "darwin":
@@ -116,6 +124,7 @@ class SettingsDialog(QDialog):
         self.config.norm_mode = ["auto", "255", "imagenet"][self.norm_mode.currentIndex()]
         self.config.downsample_ratio = self.downsample.value()
         self.config.edge_erode = self.edge_erode.value()
+        self.config.edge_soften = self.edge_soften.value()
         self.config.shutdown_on_done = self.shutdown_on_done.isChecked()
         if getattr(self, "enable_coreml", None) is not None:
             self.config.enable_coreml = self.enable_coreml.isChecked()

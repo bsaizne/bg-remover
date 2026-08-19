@@ -128,7 +128,8 @@ class VideoPipeline:
                 cancel_event: Event | None = None,
                 enable_coreml: bool = False,
                 downsample_ratio: float = 0.25,
-                edge_erode: int = 1) -> VideoTaskResult:
+                edge_erode: int = 1,
+                edge_soften: float = 1.0) -> VideoTaskResult:
         t0 = time.monotonic()
         ffmpeg = ff.locate_ffmpeg()
         meta = ff.probe_video(ffmpeg, src)
@@ -264,6 +265,11 @@ class VideoPipeline:
                 # 边缘去白边:轻微腐蚀 alpha(合成前),切掉半透明脏边
                 if edge_erode > 0:
                     pha = rvm.erode_alpha(pha, edge_erode)
+                # 边缘优化:羽化(磨平锯齿)+去色溢(去白边)。透明格式克制羽化。
+                if edge_soften > 0:
+                    feather = min(1, int(round(edge_soften)))
+                    despill = min(0.7, edge_soften * 0.5)
+                    fgr, pha = rvm.refine_edges(fgr, pha, feather, despill)
                 if is_png_seq:
                     # PNG 走 cv2.imwrite,期望 BGRA 字节序
                     cv2.imwrite(os.path.join(dst, f"frame_{done:05d}.png"),

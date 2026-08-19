@@ -302,7 +302,8 @@ class VideoTab(QWidget):
             task_index=self.queue_index + 1, task_total=len(self.videos), parent=self,
             enable_coreml=self.config.enable_coreml,
             downsample_ratio=self.config.downsample_ratio,
-            edge_erode=self.config.edge_erode)
+            edge_erode=self.config.edge_erode,
+            edge_soften=self.config.edge_soften)
         self.worker.signals.progress.connect(self._on_progress)
         self.worker.signals.finished.connect(self._on_finished)
         self.worker.signals.failed.connect(self._on_failed)

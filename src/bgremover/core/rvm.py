@@ -242,6 +242,38 @@ def erode_alpha(pha: np.ndarray, px: int = 1) -> np.ndarray:
     return np.clip(a, 0.0, 1.0).reshape(1, *a.shape).astype(np.float32)
 
 
+def refine_edges(fgr: np.ndarray, pha: np.ndarray,
+                 feather: int = 1, despill: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
+    """边缘优化:羽化(磨平锯齿) + 去色溢(边缘前景色向主体色靠拢去白边)。
+
+    透明视频(MOV)边缘叠加到任意背景时,锯齿白边/硬边明显。羽化平滑 alpha
+    过渡,去色溢去掉边缘残留的背景色。透明格式羽化须克制(feather<=1,否则
+    发虚)。
+
+    Args:
+        fgr: 前景 (3,H,W) float32 [0,1]
+        pha: matte (1,H,W) float32 [0,1]
+        feather: 高斯模糊核半径,0 跳过
+        despill: 边缘前景色向主体色混合比例,0 跳过
+
+    Returns:
+        (fgr, pha) 处理后的同 shape 数组
+    """
+    a = pha[0].copy()
+    fgr_hwc = fgr.transpose(1, 2, 0).copy()
+    if feather > 0:
+        k = feather * 2 + 1
+        a = cv2.GaussianBlur(a, (k, k), 0)
+    if despill > 0:
+        edge = (a > 0.05) & (a < 0.95)
+        solid = a > 0.95
+        if solid.sum() and edge.sum():
+            inner = fgr_hwc[solid].mean(axis=0)
+            fgr_hwc[edge] = fgr_hwc[edge] * (1.0 - despill) + inner * despill
+    a_new = np.clip(a, 0.0, 1.0).reshape(1, *a.shape).astype(np.float32)
+    return fgr_hwc.transpose(2, 0, 1), a_new
+
+
 def compose_rgba(fgr: np.ndarray, pha: np.ndarray) -> np.ndarray:
     """前景 RGB + matte → (H,W,4) uint8 RGBA。
 

@@ -27,7 +27,8 @@ class VideoWorker(BaseWorker):
                  max_retries: int = 2, parent=None,
                  enable_coreml: bool = False,
                  downsample_ratio: float = 0.25,
-                 edge_erode: int = 1):
+                 edge_erode: int = 1,
+                 edge_soften: float = 1.0):
         super().__init__(parent)
         self.src = src
         self.dst = dst
@@ -42,6 +43,7 @@ class VideoWorker(BaseWorker):
         self.enable_coreml = enable_coreml
         self.downsample_ratio = downsample_ratio
         self.edge_erode = edge_erode
+        self.edge_soften = edge_soften
 
     def run(self):
         t0 = time.monotonic()
@@ -85,7 +87,8 @@ class VideoWorker(BaseWorker):
                     cancel_event=self.cancel_event,
                     enable_coreml=self.enable_coreml,
                     downsample_ratio=self.downsample_ratio,
-                    edge_erode=self.edge_erode)
+                    edge_erode=self.edge_erode,
+                    edge_soften=self.edge_soften)
             if res.cancelled:
                 res.ok = False  # 保持 finished 语义:取消也算未成功
             self.signals.finished.emit({
