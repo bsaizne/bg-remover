@@ -103,10 +103,6 @@ src/bgremover/
 - Windows exe 未代码签名(SmartScreen 警告,右键"仍要运行"即可);Mac .app 未签名(Gatekeeper 拦截,需右键打开或签名)
 - 光流融合仅处理边缘过渡带(alpha 0.05–0.95),主体/背景完全保留当前帧,避免移动物体 alpha 稀释
 
-## 开发
-
-完整构建/打包/排错基线见 [WINDOWS_BUILD.md](WINDOWS_BUILD.md)。项目交接文档见 [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md)。
-
 源码验证:
 ```bash
 PYTHONPATH=src .venv/Scripts/python.exe -c "import sys; sys.argv=['x','--selftest']; from bgremover.app import _selftest; sys.exit(_selftest())"
